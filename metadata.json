@@ -1,0 +1,6 @@
+{
+  "name": "Tamagotchi XR - Virtual Pet Companion",
+  "description": "Augmented reality virtual pet companion with real-time needs tracking, customizable 3D avatars, daily mini-games, and social growth leaderboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
