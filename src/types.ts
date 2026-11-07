@@ -6,6 +6,8 @@ export type PetAccessory = 'none' | 'crown' | 'wizard' | 'sunglasses' | 'wings' 
 
 export type PetExpression = 'happy' | 'curious' | 'starry' | 'sleepy' | 'eating' | 'sad';
 
+export type PetMood = 'ecstatic' | 'happy' | 'hungry' | 'sad' | 'distressed' | 'sleeping';
+
 export type EvolutionStage = 'baby' | 'child' | 'teen' | 'adult' | 'mystic';
 
 export interface PetColorDef {

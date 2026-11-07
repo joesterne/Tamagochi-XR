@@ -5,6 +5,7 @@ import {
   PetColorDef,
   PetColorId,
   PetExpression,
+  PetMood,
   PetSpecies,
   PetState,
 } from './types';
@@ -118,11 +119,13 @@ export class PetManager {
   private state: PetState;
   private listeners: Array<(state: PetState) => void> = [];
   private streakRewardListeners: Array<(reward: DailyStreakRewardSummary, newStreak: number) => void> = [];
+  private feedListeners: Array<(snackType: 'apple' | 'cake' | 'sushi' | 'cookie', streakReward: DailyStreakRewardSummary | null) => void> = [];
   private speechBubbleText: string = 'Interact with me today to claim your Daily Streak reward! 🔥';
   private speechBubbleTimer: number = 0;
 
   constructor() {
     this.state = this.loadState();
+    sound.setSpeciesVoice(this.state.species);
     this.applyTimeDeltaCatchup();
   }
 
@@ -406,39 +409,206 @@ export class PetManager {
       this.state.expression = 'sleepy';
     } else if (this.state.hunger < 25 || this.state.happiness < 25) {
       this.state.expression = 'sad';
-    } else if (this.state.happiness >= 90) {
+    } else if (this.state.happiness >= 80 && this.state.hunger >= 75) {
       this.state.expression = 'starry';
+    } else if (this.state.hunger < 50 || this.state.happiness < 50) {
+      this.state.expression = 'curious';
     } else {
       this.state.expression = 'happy';
     }
   }
 
-  public feed(snackType: 'apple' | 'cake' | 'sushi' | 'cookie') {
+  /**
+   * Computes the pet's current visual mood state directly from `hunger` and `happiness`.
+   */
+  public getMood(): PetMood {
     if (this.state.isSleeping) {
-      this.say(`${this.state.name} is fast asleep! Wake up first! 💤`);
-      return;
+      return 'sleeping';
     }
-    if (this.state.hunger >= 98) {
-      this.say(`${this.state.name} is completely full! Burp! 😋`);
-      return;
+    const { hunger, happiness } = this.state;
+    if (hunger < 25 || happiness < 25) {
+      return 'distressed';
+    }
+    if (happiness >= 80 && hunger >= 75) {
+      return 'ecstatic';
+    }
+    if (hunger < 50 && hunger <= happiness) {
+      return 'hungry';
+    }
+    if (happiness < 50 && happiness < hunger) {
+      return 'sad';
+    }
+    return 'happy';
+  }
+
+  /**
+   * Returns structured visual styling & metadata for the current mood indicator.
+   */
+  public getMoodInfo(): {
+    mood: PetMood;
+    label: string;
+    hexColor: number;
+    accentHex: number;
+    cssColor: string;
+    iconEmoji: string;
+    summary: string;
+  } {
+    const mood = this.getMood();
+    const h = Math.round(this.state.hunger);
+    const hap = Math.round(this.state.happiness);
+
+    switch (mood) {
+      case 'ecstatic':
+        return {
+          mood,
+          label: 'ECSTATIC',
+          hexColor: 0x06d6a0,
+          accentHex: 0xffd166,
+          cssColor: '#06d6a0',
+          iconEmoji: '🤩',
+          summary: `Radiant & Well-Fed (Hunger ${h}% | Happy ${hap}%)`,
+        };
+      case 'happy':
+        return {
+          mood,
+          label: 'HAPPY',
+          hexColor: 0x00f5d4,
+          accentHex: 0x48cae4,
+          cssColor: '#00f5d4',
+          iconEmoji: '😊',
+          summary: `Cheerful & Content (Hunger ${h}% | Happy ${hap}%)`,
+        };
+      case 'hungry':
+        return {
+          mood,
+          label: 'HUNGRY',
+          hexColor: 0xff9f1c,
+          accentHex: 0xffbf69,
+          cssColor: '#ff9f1c',
+          iconEmoji: '🍎',
+          summary: `Craving Snacks! (Hunger ${h}% | Happy ${hap}%)`,
+        };
+      case 'sad':
+        return {
+          mood,
+          label: 'SAD',
+          hexColor: 0x4ea8de,
+          accentHex: 0x72efdd,
+          cssColor: '#4ea8de',
+          iconEmoji: '💧',
+          summary: `Needs Play & Attention (Hunger ${h}% | Happy ${hap}%)`,
+        };
+      case 'distressed':
+        return {
+          mood,
+          label: 'CRITICAL',
+          hexColor: 0xff3366,
+          accentHex: 0xff758f,
+          cssColor: '#ff3366',
+          iconEmoji: '⚠️',
+          summary: `Urgent Care Needed! (Hunger ${h}% | Happy ${hap}%)`,
+        };
+      case 'sleeping':
+        return {
+          mood,
+          label: 'SLEEPING',
+          hexColor: 0xa162e8,
+          accentHex: 0xc49df5,
+          cssColor: '#c49df5',
+          iconEmoji: '💤',
+          summary: `Resting Peacefully (Hunger ${h}% | Happy ${hap}%)`,
+        };
+    }
+  }
+
+  /**
+   * Allows testing specific hunger/happiness states to observe the 3D visual mood indicator transitions.
+   */
+  public applyMoodPreset(preset: 'ecstatic' | 'happy' | 'hungry' | 'sad' | 'distressed') {
+    this.state.isSleeping = false;
+    if (preset === 'ecstatic') {
+      this.state.hunger = 95;
+      this.state.happiness = 96;
+      sound.playHappy();
+      this.say('🤩 Feeling ECSTATIC! Full tummy and overflowing joy!', 4);
+    } else if (preset === 'happy') {
+      this.state.hunger = 70;
+      this.state.happiness = 72;
+      sound.playChirp(1.05);
+      this.say('😊 Feeling Happy and balanced!', 4);
+    } else if (preset === 'hungry') {
+      this.state.hunger = 32;
+      this.state.happiness = 68;
+      sound.playChirp(0.82);
+      this.say('🍎 Grrrble... My tummy is rumbling! Feed me a snack!', 4);
+    } else if (preset === 'sad') {
+      this.state.hunger = 72;
+      this.state.happiness = 32;
+      sound.playChirp(0.75);
+      this.say('💧 Feeling lonely and blue... Cuddle or play with me!', 4);
+    } else if (preset === 'distressed') {
+      this.state.hunger = 18;
+      this.state.happiness = 20;
+      sound.playChirp(0.68);
+      this.say('⚠️ Starving and sad! Please feed and cuddle me right away!', 4);
+    }
+    this.updateExpression();
+    this.notify();
+  }
+
+  public onFeedPet(
+    cb: (snackType: 'apple' | 'cake' | 'sushi' | 'cookie', streakReward: DailyStreakRewardSummary | null) => void
+  ): () => void {
+    this.feedListeners.push(cb);
+    return () => {
+      this.feedListeners = this.feedListeners.filter((l) => l !== cb);
+    };
+  }
+
+  /**
+   * Interactive 'Feed Pet' function that triggers the 3D feeding animation and multi-bite eating audio,
+   * increases the pet's `hunger` variable (plus happiness & XP), and contributes to the 24-hour Daily Streak.
+   */
+  public feedPet(snackType?: 'apple' | 'cake' | 'sushi' | 'cookie'): DailyStreakRewardSummary | null {
+    const snacks: Array<'apple' | 'cake' | 'sushi' | 'cookie'> = ['apple', 'cake', 'sushi', 'cookie'];
+    const chosenSnack = snackType ?? snacks[Math.floor(Math.random() * snacks.length)];
+
+    if (this.state.isSleeping) {
+      this.state.isSleeping = false;
     }
 
-    const boost = snackType === 'cake' ? 35 : snackType === 'sushi' ? 30 : snackType === 'cookie' ? 20 : 25;
-    const happyBoost = snackType === 'cake' ? 20 : 10;
+    const boost =
+      chosenSnack === 'cake' ? 35 : chosenSnack === 'sushi' ? 30 : chosenSnack === 'cookie' ? 20 : 25;
+    const happyBoost = chosenSnack === 'cake' ? 20 : 12;
 
+    const prevHunger = Math.round(this.state.hunger);
     this.state.hunger = Math.min(100, this.state.hunger + boost);
+    const newHunger = Math.round(this.state.hunger);
+
     this.state.happiness = Math.min(100, this.state.happiness + happyBoost);
-    this.state.hygiene = Math.max(0, this.state.hygiene - 5);
-    this.state.affection += 5;
+    this.state.hygiene = Math.max(0, this.state.hygiene - 3);
+    this.state.affection += 6;
     this.state.totalFedCount += 1;
     this.state.expression = 'eating';
 
-    sound.playEat();
+    // Trigger 3D spatial multi-bite eating sound effect
+    sound.playEat(chosenSnack);
     this.gainExp(25);
 
-    const streakReward = this.recordDailyInteraction(`Fed ${snackType}`);
+    // Contribute to the 24-hour Daily Streak
+    const streakReward = this.recordDailyInteraction(`Fed ${chosenSnack.toUpperCase()}`);
     if (!streakReward) {
-      this.say(`Nom nom nom! That ${snackType} was delicious! 😋 (+25 XP)`);
+      const gained = Math.max(0, newHunger - prevHunger);
+      const hungerMsg = gained > 0 ? `+${gained}% Hunger (${newHunger}%)` : `Hunger Full (100%)`;
+      this.say(
+        `Nom nom nom! Ate ${chosenSnack.toUpperCase()}! 😋 ${hungerMsg}, +25 XP | Streak: ${this.state.dailyStreak}d 🔥`,
+        4.5
+      );
+    }
+
+    // Notify 3D PetRenderer to trigger the 3D feeding animation & food prop flight
+    for (const listener of this.feedListeners) {
+      listener(chosenSnack, streakReward);
     }
 
     setTimeout(() => {
@@ -447,6 +617,11 @@ export class PetManager {
     }, 1800);
 
     this.notify();
+    return streakReward;
+  }
+
+  public feed(snackType: 'apple' | 'cake' | 'sushi' | 'cookie') {
+    this.feedPet(snackType);
   }
 
   public clean() {
@@ -586,6 +761,7 @@ export class PetManager {
   // Customization setters
   public setSpecies(species: PetSpecies) {
     this.state.species = species;
+    sound.setSpeciesVoice(species);
     sound.playChirp(1.1);
     this.say(`Transformed into a ${species.toUpperCase()}! Look at me! ✨`);
     this.notify();

@@ -5,12 +5,14 @@ import { sound } from './sound';
 import { MiniGameManager } from './miniGames';
 import { PetRenderer } from './petRenderer';
 import { DailyStreakShrine } from './streakShrine';
+import { ARPlacementSystem } from './arPlacement';
 
 export class TamagotchiSpatialUI {
   public card: xb.UICard;
   private petRef: PetRenderer;
   private miniGames: MiniGameManager;
   private streakShrineRef?: DailyStreakShrine;
+  private arPlacementRef?: ARPlacementSystem;
 
   // Active Tab: 'care' | 'streak' | 'stylist' | 'games' | 'leaderboard'
   private currentTab: 'care' | 'streak' | 'stylist' | 'games' | 'leaderboard' = 'care';
@@ -19,6 +21,16 @@ export class TamagotchiSpatialUI {
   private titleText: xb.UIText;
   private subtitleText: xb.UIText;
   private levelBadgeText: xb.UIText;
+
+  // AR Pass-Through & Hit-Test Placement Bar Elements
+  private arModeToggleBtn: xb.UIButton;
+  private surfaceAnchorBtn: xb.UIButton;
+  private arStatusText: xb.UIText;
+
+  // Spatial Audio Engine Controls
+  private sfxToggleBtn: xb.UIButton;
+  private ambientToggleBtn: xb.UIButton;
+  private chirpVoiceBtn: xb.UIButton;
 
   // Tab Buttons
   private tabCareBtn: xb.UIButton;
@@ -35,6 +47,8 @@ export class TamagotchiSpatialUI {
   private leaderboardPanel: xb.UIPanel;
 
   // Care Panel Elements
+  private moodStatusBadgePanel: xb.UIPanel;
+  private moodStatusText: xb.UIText;
   private hungerText: xb.UIText;
   private hungerBar: xb.UIPanel;
   private energyText: xb.UIText;
@@ -66,18 +80,24 @@ export class TamagotchiSpatialUI {
   // Leaderboard Panel Elements
   private leaderboardListPanel: xb.UIPanel;
 
-  constructor(pet: PetRenderer, miniGames: MiniGameManager, streakShrine?: DailyStreakShrine) {
+  constructor(
+    pet: PetRenderer,
+    miniGames: MiniGameManager,
+    streakShrine?: DailyStreakShrine,
+    arPlacement?: ARPlacementSystem
+  ) {
     this.petRef = pet;
     this.miniGames = miniGames;
     this.streakShrineRef = streakShrine;
+    this.arPlacementRef = arPlacement;
 
-    // Header elements
+    // Header elements (ASCII-clean for zero MSDF missing-glyph warnings)
     this.titleText = new xb.UIText({
-      text: 'Mochi (Baby)',
+      text: 'Mochi (BABY)',
       style: { fontSize: 25, fontWeight: 'bold', color: '#ffffff' },
     });
     this.subtitleText = new xb.UIText({
-      text: 'Age: 0.2 days • Daily Streak: 2 🔥',
+      text: 'Age: 0.2 days | Daily Streak: 2d',
       style: { fontSize: 13, opacity: 0.78, color: '#e0e7ff' },
     });
     this.levelBadgeText = new xb.UIText({
@@ -91,7 +111,7 @@ export class TamagotchiSpatialUI {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingBottom: 6,
+        paddingBottom: 4,
       },
       children: [
         new xb.UIPanel({
@@ -114,6 +134,125 @@ export class TamagotchiSpatialUI {
       ],
     });
 
+    // --- AR Pass-Through & WebXR Hit-Test Surface Anchor Controls ---
+    this.arModeToggleBtn = new xb.UIButton({
+      label: 'AR Pass-Through: ON',
+      icon: 'view_in_ar',
+      style: { flexGrow: 1, height: 36, fontSize: 12 },
+      onClick: () => {
+        if (!this.arPlacementRef) return;
+        const isAR = this.arPlacementRef.toggleARPassThrough();
+        petManager.say(
+          isAR
+            ? 'AR Pass-Through Active! Your real room is visible!'
+            : 'Switched to Cozy VR Sanctuary Environment!',
+          3.5
+        );
+        this.refreshARControlsUI();
+      },
+    });
+
+    this.surfaceAnchorBtn = new xb.UIButton({
+      label: 'Anchor to Surface',
+      icon: 'open_with',
+      style: { flexGrow: 1, height: 36, fontSize: 12 },
+      onClick: () => {
+        if (!this.arPlacementRef) return;
+        const active = this.arPlacementRef.toggleSurfacePlacementMode();
+        if (active) {
+          petManager.say(
+            'Point at any physical surface & pinch/click to anchor me there!',
+            5
+          );
+        } else {
+          petManager.say('Surface placement locked!', 3);
+        }
+        this.refreshARControlsUI();
+      },
+    });
+
+    this.arStatusText = new xb.UIText({
+      text: 'AR Pass-Through Ready | Use Hit-Test to anchor pet onto real surfaces',
+      style: { fontSize: 11, opacity: 0.78, color: '#00f5d4', textAlign: 'center' },
+    });
+
+    const arControlBar = new xb.UIPanel({
+      style: {
+        width: '100%',
+        flexDirection: 'column',
+        gap: 6,
+        padding: 8,
+        borderRadius: 12,
+        backgroundColor: 'rgba(0, 245, 212, 0.08)',
+        borderColor: 'rgba(0, 245, 212, 0.25)',
+        borderWidth: 1,
+      },
+      children: [
+        new xb.UIPanel({
+          style: { width: '100%', flexDirection: 'row', gap: 8 },
+          children: [this.arModeToggleBtn, this.surfaceAnchorBtn],
+        }),
+        this.arStatusText,
+      ],
+    });
+
+    if (this.arPlacementRef) {
+      this.arPlacementRef.onStateChange(() => this.refreshARControlsUI());
+    }
+
+    // --- 3D Spatial Audio Engine Controls ---
+    this.sfxToggleBtn = new xb.UIButton({
+      label: 'SFX: ON',
+      icon: 'volume_up',
+      style: { flexGrow: 1, height: 34, fontSize: 12 },
+      onClick: () => {
+        const isOn = sound.toggleMute();
+        this.sfxToggleBtn.label = isOn ? 'SFX: ON' : 'SFX: MUTED';
+        this.sfxToggleBtn.icon = isOn ? 'volume_up' : 'volume_off';
+        if (isOn) {
+          petManager.say('3D Spatial Pet Audio Enabled! 🔊', 3);
+        } else {
+          this.ambientToggleBtn.label = 'Chimes: OFF';
+        }
+      },
+    });
+
+    this.ambientToggleBtn = new xb.UIButton({
+      label: 'Chimes: OFF',
+      icon: 'music_note',
+      style: { flexGrow: 1, height: 34, fontSize: 12 },
+      onClick: () => {
+        const active = sound.toggleAmbientSoundscape();
+        this.ambientToggleBtn.label = active ? 'Chimes: ON' : 'Chimes: OFF';
+        if (active) {
+          this.sfxToggleBtn.label = 'SFX: ON';
+          this.sfxToggleBtn.icon = 'volume_up';
+          petManager.say('Sanctuary Wind Chimes playing softly! 🎐', 3);
+        }
+      },
+    });
+
+    this.chirpVoiceBtn = new xb.UIButton({
+      label: 'Chirp!',
+      icon: 'favorite',
+      style: { flexGrow: 1, height: 34, fontSize: 12 },
+      onClick: () => {
+        sound.playChirp(0.95 + Math.random() * 0.25);
+        this.petRef.spawnHearts(4);
+        this.petRef.spawnStars(3);
+        const state = petManager.getState();
+        petManager.say(
+          `*Playful ${state.species.toUpperCase()} chirp!* My voice adapts to my species! 🎵`,
+          3.5
+        );
+      },
+    });
+
+    const audioControlRow = new xb.UIPanel({
+      style: { width: '100%', flexDirection: 'row', gap: 6 },
+      children: [this.sfxToggleBtn, this.ambientToggleBtn, this.chirpVoiceBtn],
+    });
+
     // Tab buttons
     this.tabCareBtn = new xb.UIButton({
       label: 'Care',
@@ -122,7 +261,7 @@ export class TamagotchiSpatialUI {
       onClick: () => this.switchTab('care'),
     });
     this.tabStreakBtn = new xb.UIButton({
-      label: 'Streak 🔥',
+      label: 'Streak',
       style: { flexGrow: 1, height: 38, fontSize: 13 },
       onClick: () => this.switchTab('streak'),
     });
@@ -157,6 +296,25 @@ export class TamagotchiSpatialUI {
     });
 
     // --- Care Panel Setup ---
+    this.moodStatusText = new xb.UIText({
+      text: 'MOOD: ECSTATIC - Radiant & Well-Fed (Hunger 80% | Happy 85%)',
+      style: { fontSize: 12, fontWeight: 'bold', color: '#06d6a0', textAlign: 'center' },
+    });
+
+    this.moodStatusBadgePanel = new xb.UIPanel({
+      style: {
+        width: '100%',
+        padding: 8,
+        borderRadius: 10,
+        backgroundColor: 'rgba(6, 214, 160, 0.14)',
+        borderColor: '#06d6a0',
+        borderWidth: 1.5,
+        justifyContent: 'center',
+        alignItems: 'center',
+      },
+      children: [this.moodStatusText],
+    });
+
     this.hungerText = new xb.UIText({ text: '80%', style: { fontSize: 13, fontWeight: 'bold' } });
     this.hungerBar = new xb.UIPanel({
       style: { width: '80%', height: '100%', backgroundColor: '#ff5c8a', borderRadius: 6 },
@@ -180,10 +338,10 @@ export class TamagotchiSpatialUI {
     const needsContainer = new xb.UIPanel({
       style: { width: '100%', flexDirection: 'column', gap: 8 },
       children: [
-        this.createNeedRow('Hunger 🍎', this.hungerBar, this.hungerText),
-        this.createNeedRow('Energy ⚡', this.energyBar, this.energyText),
-        this.createNeedRow('Happiness 💖', this.happinessBar, this.happinessText),
-        this.createNeedRow('Hygiene 🧼', this.hygieneBar, this.hygieneText),
+        this.createNeedRow('Hunger', this.hungerBar, this.hungerText),
+        this.createNeedRow('Energy', this.energyBar, this.energyText),
+        this.createNeedRow('Happiness', this.happinessBar, this.happinessText),
+        this.createNeedRow('Hygiene', this.hygieneBar, this.hygieneText),
       ],
     });
 
@@ -200,25 +358,33 @@ export class TamagotchiSpatialUI {
       style: { width: '100%', flexDirection: 'row', gap: 8 },
       children: [
         new xb.UIButton({
-          label: 'Feed 🍎',
+          label: 'Feed Pet',
           icon: 'restaurant',
           style: { flexGrow: 1, height: 42 },
           onClick: () => {
-            const snacks: Array<'apple' | 'cake' | 'sushi' | 'cookie'> = ['apple', 'cake', 'sushi', 'cookie'];
-            const chosen = snacks[Math.floor(Math.random() * snacks.length)];
-            petManager.feed(chosen);
-            this.petRef.spawnHearts(5);
+            this.feedPet();
           },
         }),
         new xb.UIButton({
-          label: 'Clean 🧼',
+          label: 'Bubble Clean',
           icon: 'soap',
           style: { flexGrow: 1, height: 42 },
           onClick: () => {
             petManager.clean();
             this.petRef.spawnBubbles(10);
+            this.refreshStreakPanelUI();
           },
         }),
+      ],
+    });
+
+    const snackSelectRow = new xb.UIPanel({
+      style: { width: '100%', flexDirection: 'row', gap: 6 },
+      children: [
+        this.createMiniBtn('Apple +25%', () => this.feedPet('apple')),
+        this.createMiniBtn('Cake +35%', () => this.feedPet('cake')),
+        this.createMiniBtn('Sushi +30%', () => this.feedPet('sushi')),
+        this.createMiniBtn('Cookie +20%', () => this.feedPet('cookie')),
       ],
     });
 
@@ -226,37 +392,64 @@ export class TamagotchiSpatialUI {
       style: { width: '100%', flexDirection: 'row', gap: 8 },
       children: [
         new xb.UIButton({
-          label: 'Pet / Cuddle ❤️',
+          label: 'Pet / Cuddle',
           icon: 'favorite',
           style: { flexGrow: 1, height: 42 },
           onClick: () => {
             petManager.pet();
             this.petRef.spawnHearts(8);
             this.petRef.triggerFlip();
+            this.refreshStreakPanelUI();
           },
         }),
         this.sleepBtn,
       ],
     });
 
+    const moodPresetRow = new xb.UIPanel({
+      style: { width: '100%', flexDirection: 'row', gap: 6 },
+      children: [
+        this.createMiniBtn('Mood: Ecstatic', () => {
+          petManager.applyMoodPreset('ecstatic');
+          this.petRef.spawnStars(6);
+        }),
+        this.createMiniBtn('Mood: Hungry', () => {
+          petManager.applyMoodPreset('hungry');
+        }),
+        this.createMiniBtn('Mood: Sad', () => {
+          petManager.applyMoodPreset('sad');
+        }),
+        this.createMiniBtn('Mood: Critical', () => {
+          petManager.applyMoodPreset('distressed');
+        }),
+      ],
+    });
+
     this.carePanel = new xb.UIPanel({
-      style: { width: '100%', flexDirection: 'column', gap: 10 },
-      children: [needsContainer, careRow1, careRow2],
+      style: { width: '100%', flexDirection: 'column', gap: 8 },
+      children: [
+        this.moodStatusBadgePanel,
+        needsContainer,
+        careRow1,
+        snackSelectRow,
+        careRow2,
+        moodPresetRow,
+      ],
     });
 
     // --- Daily Streak Panel Setup ---
     this.streakHeaderTitle = new xb.UIText({
-      text: '🔥 2 Day Streak • Best: 2 Days',
+      text: '2 Day Streak | Best: 2 Days',
       style: { fontSize: 18, fontWeight: 'bold', color: '#ffd166', textAlign: 'center' },
     });
 
     this.streakCountdownText = new xb.UIText({
-      text: 'READY NOW! Interact with pet 🔥',
+      text: 'READY NOW! Interact with pet',
       style: { fontSize: 14, fontWeight: 'bold', color: '#00f5d4', textAlign: 'center' },
     });
 
     this.streakRewardTierText = new xb.UIText({
-      text: 'Next Milestone: Day 3 Golden Apple (+110 XP, +35 ❤️, Flower Crown)',
+      text: 'Next Milestone: Day 3 Golden Apple (+110 XP, +35 Affection, Flower Crown)',
       style: { fontSize: 12, opacity: 0.85, textAlign: 'center', color: '#ffffff' },
     });
 
@@ -271,7 +464,7 @@ export class TamagotchiSpatialUI {
     });
 
     this.claimDailyRewardBtn = new xb.UIButton({
-      label: 'Claim 24h Streak Reward 🔥',
+      label: 'Claim 24h Streak Reward',
       style: { flexGrow: 1, height: 42 },
       onClick: () => {
         const reward = petManager.recordDailyInteraction('Daily Check-In');
@@ -282,14 +475,14 @@ export class TamagotchiSpatialUI {
           this.streakShrineRef?.triggerCelebrationBurst();
         } else {
           sound.playChirp(0.9);
-          petManager.say(`Already claimed today! ${petManager.getStreakCountdownFormatted()} ⏳`, 4);
+          petManager.say(`Already claimed today! ${petManager.getStreakCountdownFormatted()}`, 4);
         }
         this.refreshStreakPanelUI();
       },
     });
 
     const simulate24hBtn = new xb.UIButton({
-      label: '+24h Fast-Forward ⏩',
+      label: '+24h Fast-Forward',
       style: { flexGrow: 1, height: 42 },
       onClick: () => {
         petManager.simulateNext24Hours();
@@ -333,10 +526,10 @@ export class TamagotchiSpatialUI {
     const speciesRow = new xb.UIPanel({
       style: { width: '100%', flexDirection: 'row', gap: 6 },
       children: [
-        this.createMiniBtn('Blobby 🐰', () => this.selectSpecies('blobby')),
-        this.createMiniBtn('Pipsqueak 🐥', () => this.selectSpecies('pipsqueak')),
-        this.createMiniBtn('Draco 🐉', () => this.selectSpecies('draco')),
-        this.createMiniBtn('Kitsune 🦊', () => this.selectSpecies('kitsune')),
+        this.createMiniBtn('Blobby', () => this.selectSpecies('blobby')),
+        this.createMiniBtn('Pipsqueak', () => this.selectSpecies('pipsqueak')),
+        this.createMiniBtn('Draco', () => this.selectSpecies('draco')),
+        this.createMiniBtn('Kitsune', () => this.selectSpecies('kitsune')),
       ],
     });
 
@@ -344,17 +537,17 @@ export class TamagotchiSpatialUI {
     const colorRow1 = new xb.UIPanel({
       style: { width: '100%', flexDirection: 'row', gap: 6 },
       children: [
-        this.createMiniBtn('Pink 🌸', () => this.selectColor('pink')),
-        this.createMiniBtn('Mint 🍃', () => this.selectColor('mint')),
-        this.createMiniBtn('Purple 🔮', () => this.selectColor('purple')),
+        this.createMiniBtn('Pink', () => this.selectColor('pink')),
+        this.createMiniBtn('Mint', () => this.selectColor('mint')),
+        this.createMiniBtn('Purple', () => this.selectColor('purple')),
       ],
     });
     const colorRow2 = new xb.UIPanel({
       style: { width: '100%', flexDirection: 'row', gap: 6 },
       children: [
-        this.createMiniBtn('Gold ☀️', () => this.selectColor('gold')),
-        this.createMiniBtn('Blue 💎', () => this.selectColor('blue')),
-        this.createMiniBtn('Sunset 🌅', () => this.selectColor('sunset')),
+        this.createMiniBtn('Gold', () => this.selectColor('gold')),
+        this.createMiniBtn('Blue', () => this.selectColor('blue')),
+        this.createMiniBtn('Sunset', () => this.selectColor('sunset')),
       ],
     });
 
@@ -362,18 +555,18 @@ export class TamagotchiSpatialUI {
     const accessoryRow1 = new xb.UIPanel({
       style: { width: '100%', flexDirection: 'row', gap: 6 },
       children: [
-        this.createMiniBtn('None 🌿', () => this.selectAccessory('none')),
-        this.createMiniBtn('Crown 👑', () => this.selectAccessory('crown')),
-        this.createMiniBtn('Wizard 🧙', () => this.selectAccessory('wizard')),
-        this.createMiniBtn('Glasses 😎', () => this.selectAccessory('sunglasses')),
+        this.createMiniBtn('None', () => this.selectAccessory('none')),
+        this.createMiniBtn('Crown', () => this.selectAccessory('crown')),
+        this.createMiniBtn('Wizard', () => this.selectAccessory('wizard')),
+        this.createMiniBtn('Glasses', () => this.selectAccessory('sunglasses')),
       ],
     });
     const accessoryRow2 = new xb.UIPanel({
       style: { width: '100%', flexDirection: 'row', gap: 6 },
       children: [
-        this.createMiniBtn('Wings 🪽', () => this.selectAccessory('wings')),
-        this.createMiniBtn('Bowtie 🎀', () => this.selectAccessory('bowtie')),
-        this.createMiniBtn('Flower 🌼', () => this.selectAccessory('flower')),
+        this.createMiniBtn('Wings', () => this.selectAccessory('wings')),
+        this.createMiniBtn('Bowtie', () => this.selectAccessory('bowtie')),
+        this.createMiniBtn('Flower', () => this.selectAccessory('flower')),
       ],
     });
 
@@ -409,22 +602,22 @@ export class TamagotchiSpatialUI {
       style: { width: '100%', flexDirection: 'row', gap: 8, display: 'none' },
       children: [
         new xb.UIButton({
-          label: '👈 Left Hop',
+          label: 'Left Hop',
           style: { flexGrow: 1, height: 44, backgroundColor: '#3a86ff' },
           onClick: () => this.miniGames.handlePlayerSimonInput(0),
         }),
         new xb.UIButton({
-          label: '👆 Jump',
+          label: 'High Jump',
           style: { flexGrow: 1, height: 44, backgroundColor: '#ff006e' },
           onClick: () => this.miniGames.handlePlayerSimonInput(1),
         }),
         new xb.UIButton({
-          label: '👉 Right Hop',
+          label: 'Right Hop',
           style: { flexGrow: 1, height: 44, backgroundColor: '#fb5607' },
           onClick: () => this.miniGames.handlePlayerSimonInput(2),
         }),
         new xb.UIButton({
-          label: '🔄 360 Spin',
+          label: '360 Spin',
           style: { flexGrow: 1, height: 44, backgroundColor: '#8338ec' },
           onClick: () => this.miniGames.handlePlayerSimonInput(3),
         }),
@@ -435,13 +628,13 @@ export class TamagotchiSpatialUI {
       style: { width: '100%', flexDirection: 'row', gap: 10 },
       children: [
         new xb.UIButton({
-          label: 'Berry Drop 🍓',
+          label: 'Berry Drop',
           icon: 'play_arrow',
           style: { flexGrow: 1, height: 44 },
           onClick: () => this.startBerryDropGame(),
         }),
         new xb.UIButton({
-          label: 'Simon Dance 🎵',
+          label: 'Simon Dance',
           icon: 'music_note',
           style: { flexGrow: 1, height: 44 },
           onClick: () => this.startSimonDanceGame(),
@@ -491,6 +684,8 @@ export class TamagotchiSpatialUI {
       },
       children: [
         header,
+        arControlBar,
+        audioControlRow,
         tabRow,
         this.carePanel,
         this.streakPanel,
@@ -505,6 +700,43 @@ export class TamagotchiSpatialUI {
 
     // Subscribe to state updates
     petManager.subscribe((state) => this.onStateChanged(state));
+    this.refreshStreakPanelUI();
+    this.refreshARControlsUI();
+  }
+
+  public refreshARControlsUI() {
+    if (!this.arPlacementRef) return;
+    const isAR = this.arPlacementRef.isPassThroughEnabled;
+    const isPlacing = this.arPlacementRef.isPlacementModeActive;
+
+    this.arModeToggleBtn.label = isAR ? 'AR Pass-Through: ON' : 'VR Sanctuary: ON';
+    this.surfaceAnchorBtn.label = isPlacing ? 'Cancel Surface Aim' : 'Anchor to Surface';
+
+    if (isPlacing) {
+      this.arStatusText.text = 'WebXR Hit-Test Active: Point at a surface & pinch/click to place pet!';
+      this.arStatusText.style.color = '#ffd166';
+    } else if (isAR) {
+      const pos = this.arPlacementRef.getAnchoredPosition();
+      this.arStatusText.text = `AR Pass-Through Active | Pet Anchored at (${pos.x.toFixed(2)}m, ${pos.y.toFixed(2)}m, ${pos.z.toFixed(2)}m)`;
+      this.arStatusText.style.color = '#00f5d4';
+    } else {
+      this.arStatusText.text = 'VR Sanctuary Mode | Toggle AR Pass-Through to see your physical space';
+      this.arStatusText.style.color = '#c49df5';
+    }
+  }
+
+  /**
+   * Interactive 'Feed Pet' handler invoked from the Spatial UI buttons.
+   * Triggers the 3D feeding animation, plays multi-bite eating audio, increases `hunger`,
+   * and contributes to the 24-hour Daily Streak.
+   */
+  public feedPet(snackType?: 'apple' | 'cake' | 'sushi' | 'cookie') {
+    const streakReward = petManager.feedPet(snackType);
+    if (streakReward) {
+      this.streakShrineRef?.triggerCelebrationBurst();
+    } else {
+      this.streakShrineRef?.syncWithStreakState();
+    }
     this.refreshStreakPanelUI();
   }
 
@@ -574,16 +806,17 @@ export class TamagotchiSpatialUI {
     const nextDay = state.dailyStreak + 1;
     const nextTier = petManager.getRewardTierForDay(nextDay);
 
-    this.streakHeaderTitle.text = `🔥 ${state.dailyStreak} Day Streak • Best: ${state.bestStreak} Days`;
-    this.streakCountdownText.text = petManager.getStreakCountdownFormatted();
+    this.streakHeaderTitle.text = `${state.dailyStreak} Day Streak | Best: ${state.bestStreak} Days`;
+    this.streakCountdownText.text = petManager.getStreakCountdownFormatted().replace(/[^\x20-\x7E]/g, '').trim();
     this.streakCountdownText.style.color = isAvailable ? '#ffd166' : '#00f5d4';
 
     const unlockStr = nextTier.unlockedAccessory ? ` + ${nextTier.unlockedAccessory.toUpperCase()}` : '';
-    this.streakRewardTierText.text = `Next (${nextTier.title}): +${nextTier.expBonus} XP, +${nextTier.affectionBonus} ❤️${unlockStr}`;
+    const cleanTitle = nextTier.title.replace(/[^\x20-\x7E]/g, '').trim();
+    this.streakRewardTierText.text = `Next (${cleanTitle}): +${nextTier.expBonus} XP, +${nextTier.affectionBonus} Affection${unlockStr}`;
 
     this.claimDailyRewardBtn.label = isAvailable
-      ? `Claim Day ${nextDay} Reward 🔥`
-      : 'Claimed Today ✓';
+      ? `Claim Day ${nextDay} Reward`
+      : 'Claimed Today [OK]';
 
     // Rebuild 7-day calendar rows (4 in row 1, 3 in row 2)
     while (this.streakCalendarRow1.children.length > 0) {
@@ -624,7 +857,7 @@ export class TamagotchiSpatialUI {
         },
         children: [
           new xb.UIText({
-            text: `Day ${tier.day} ${isCompleted ? '✓' : isNextTarget ? '🔥' : ''}`,
+            text: `Day ${tier.day}${isCompleted ? ' [DONE]' : isNextTarget ? ' [NEXT]' : ''}`,
             style: {
               fontSize: 12,
               fontWeight: 'bold',
@@ -647,10 +880,18 @@ export class TamagotchiSpatialUI {
   }
 
   private onStateChanged(state: PetState) {
+    const moodInfo = petManager.getMoodInfo();
     this.titleText.text = `${state.name} (${state.stage.toUpperCase()})`;
-    const streakStatus = petManager.isStreakRewardAvailable() ? 'READY 🔥' : `${state.dailyStreak}d 🔥`;
-    this.subtitleText.text = `Age: ${(state.ageHours / 24).toFixed(1)}d • Daily Streak: ${streakStatus}`;
+    const streakStatus = petManager.isStreakRewardAvailable() ? 'READY' : `${state.dailyStreak}d`;
+    this.subtitleText.text = `Age: ${(state.ageHours / 24).toFixed(1)}d | Mood: ${moodInfo.label} | Streak: ${streakStatus}`;
     this.levelBadgeText.text = `LVL ${state.level}`;
+
+    // Update live Mood Status Banner in Care Tab
+    if (this.moodStatusText && this.moodStatusBadgePanel) {
+      this.moodStatusText.text = `3D MOOD: ${moodInfo.label} - ${moodInfo.summary}`;
+      this.moodStatusText.style.color = moodInfo.cssColor;
+      this.moodStatusBadgePanel.style.borderColor = moodInfo.cssColor;
+    }
 
     // Needs values & progress bars
     const h = Math.round(state.hunger);
@@ -670,7 +911,7 @@ export class TamagotchiSpatialUI {
     this.hygieneText.text = `${hyg}%`;
     this.hygieneBar.style.width = `${Math.max(5, hyg)}%`;
 
-    this.sleepBtn.label = state.isSleeping ? 'Wake Up ☀️' : 'Nap Time 🌙';
+    this.sleepBtn.label = state.isSleeping ? 'Wake Up' : 'Nap Time';
 
     // Stylist labels
     this.speciesText.text = `Current: ${state.species.toUpperCase()}`;
@@ -679,7 +920,7 @@ export class TamagotchiSpatialUI {
     this.accessoryText.text = `Accessory: ${state.accessory.toUpperCase()}`;
 
     // Mini-games score label
-    this.gameScoreText.text = `Personal Best: ${state.miniGameHighScore} pts • Affection: ${state.affection} ❤️`;
+    this.gameScoreText.text = `Personal Best: ${state.miniGameHighScore} pts | Affection: ${state.affection}`;
 
     if (this.currentTab === 'streak' && this.streakHeaderTitle) {
       this.refreshStreakPanelUI();
@@ -707,7 +948,7 @@ export class TamagotchiSpatialUI {
 
     this.miniGames.startBerryCatch(
       (score, timeSec, combo) => {
-        this.gameStatusText.text = `Time: ${timeSec}s • Score: ${score} • Combo: x${combo}`;
+        this.gameStatusText.text = `Time: ${timeSec}s | Score: ${score} | Combo: x${combo}`;
       },
       (result) => {
         this.gameStatusText.text = `Game Over! Final Score: ${result.score}! (+${result.happinessGain}% Happiness, +${result.expGain} XP)`;
@@ -724,7 +965,7 @@ export class TamagotchiSpatialUI {
         if (isPlayerTurn) {
           this.gameStatusText.text = 'Your Turn! Tap the matching dance buttons!';
         } else if (move >= 0) {
-          const moveNames = ['Left Hop 👈', 'Jump 👆', 'Right Hop 👉', '360 Spin 🔄'];
+          const moveNames = ['Left Hop', 'High Jump', 'Right Hop', '360 Spin'];
           this.gameStatusText.text = `Pet Move: ${moveNames[move]}`;
         }
       },
@@ -776,7 +1017,7 @@ export class TamagotchiSpatialUI {
                     style: { fontSize: 15, fontWeight: 'bold', color: isUser ? '#00f5d4' : '#ffffff' },
                   }),
                   new xb.UIText({
-                    text: `${entry.species.toUpperCase()} • ${entry.stage.toUpperCase()}`,
+                    text: `${entry.species.toUpperCase()} | ${entry.stage.toUpperCase()}`,
                     style: { fontSize: 11, opacity: 0.65 },
                   }),
                 ],
@@ -791,7 +1032,7 @@ export class TamagotchiSpatialUI {
                 style: { fontSize: 15, fontWeight: 'bold', color: '#ffd166' },
               }),
               new xb.UIText({
-                text: `${entry.affection} ❤️ • ${entry.ageDays}d`,
+                text: `${entry.affection} Affection | ${entry.ageDays}d`,
                 style: { fontSize: 11, opacity: 0.7 },
               }),
             ],

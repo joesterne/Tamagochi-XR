@@ -5,24 +5,28 @@ import { PetRenderer } from './petRenderer';
 import { petManager } from './petManager';
 import { TamagotchiSpatialUI } from './spatialUI';
 import { MiniGameManager } from './miniGames';
-import { BouncyBall } from './toysAndFood';
+import { BouncyBall, SnackPlatter } from './toysAndFood';
 import { DailyStreakShrine } from './streakShrine';
+import { ARPlacementSystem } from './arPlacement';
 import { sound } from './sound';
 
 // Pre-allocated scratch vectors for zero-GC update loop
-const _ballDir = new THREE.Vector3();
-const _launchDir = new THREE.Vector3();
 
 class TamagotchiXRScene extends xb.Script {
   private pet!: PetRenderer;
   private streakShrine!: DailyStreakShrine;
+  private arPlacement!: ARPlacementSystem;
   private spatialUI!: TamagotchiSpatialUI;
   private miniGames!: MiniGameManager;
   private bouncyBall!: BouncyBall;
+  private snackPlatter!: SnackPlatter;
   private dirLight!: THREE.DirectionalLight;
   private hemiLight!: THREE.HemisphereLight;
 
-  private clock = new THREE.Clock();
+  // Smooth damped target positions for surface anchoring
+  private targetPetPos = new THREE.Vector3(0, 0.82, -0.85);
+  private targetShrinePos = new THREE.Vector3(0.42, 0.8, -0.95);
+
   private floorY = 0.8;
 
   init() {
@@ -47,14 +51,18 @@ class TamagotchiXRScene extends xb.Script {
     this.dirLight.shadow.normalBias = 0.02;
     this.add(this.dirLight);
 
-    // 3. Pet 3D Renderer (Grounded with contact shadow)
+    // 3. AR Pass-Through & WebXR Hit-Test Surface Placement System
+    this.arPlacement = new ARPlacementSystem();
+    this.add(this.arPlacement);
+
+    // 4. Pet 3D Renderer (Grounded on physical surface anchor pad)
     this.pet = new PetRenderer();
-    this.pet.position.set(0, 1.05, -0.85);
+    this.pet.position.copy(this.targetPetPos);
     this.add(this.pet);
 
-    // 4. 3D Daily Streak Shrine & 24h Reward Chest
+    // 5. 3D Daily Streak Shrine & 24h Reward Chest
     this.streakShrine = new DailyStreakShrine();
-    this.streakShrine.position.set(0.42, 0.85, -0.95);
+    this.streakShrine.position.copy(this.targetShrinePos);
     this.streakShrine.rotation.y = -0.35;
     this.add(this.streakShrine);
 
@@ -66,18 +74,27 @@ class TamagotchiXRScene extends xb.Script {
       this.pet.triggerFlip();
     });
 
-    // 5. Mini Games Manager
+    // 6. Mini Games Manager
     this.miniGames = new MiniGameManager();
     this.miniGames.setPet(this.pet);
     this.add(this.miniGames);
 
-    // 6. Interactive Toy Bouncy Ball
+    // 7. Interactive Toy Ball & 3D Snack Platter (Stationary on surface)
     this.bouncyBall = new BouncyBall();
-    this.bouncyBall.position.set(0.28, 1.0, -0.72);
+    this.bouncyBall.position.set(0.28, this.floorY + 0.06, -0.72);
     this.add(this.bouncyBall);
 
-    // 7. Spatial UI Card
-    this.spatialUI = new TamagotchiSpatialUI(this.pet, this.miniGames, this.streakShrine);
+    this.snackPlatter = new SnackPlatter();
+    this.snackPlatter.position.set(-0.34, this.floorY, -0.76);
+    this.add(this.snackPlatter);
+
+    // 8. Spatial UI Card
+    this.spatialUI = new TamagotchiSpatialUI(
+      this.pet,
+      this.miniGames,
+      this.streakShrine,
+      this.arPlacement
+    );
     this.spatialUI.card.position.set(-0.55, 1.45, -1.05);
     this.spatialUI.card.rotation.y = 0.25;
     this.add(this.spatialUI.card);
@@ -93,42 +110,62 @@ class TamagotchiXRScene extends xb.Script {
     }, 800);
   }
 
+  /**
+   * Anchors the virtual pet, its coaster pad, the Daily Streak Shrine, and the physics floor
+   * onto the targeted real-world surface coordinates obtained via WebXR Hit Test / DepthMesh.
+   */
+  private anchorPetAtSurfacePoint(hitPoint: THREE.Vector3) {
+    this.floorY = hitPoint.y;
+    this.arPlacement.setAnchoredPose(hitPoint);
+
+    // Set smooth damped target positions for the pet and its companion shrine
+    this.targetPetPos.set(hitPoint.x, hitPoint.y + 0.022, hitPoint.z);
+    this.targetShrinePos.set(hitPoint.x + 0.42, hitPoint.y, hitPoint.z - 0.08);
+
+    // Face the camera horizontally
+    const camPos = xb.core.camera.position;
+    this.pet.lookAt(camPos.x, this.pet.position.y, camPos.z);
+
+    // Reposition toy ball & 3D snack platter stationary on the newly anchored surface
+    this.bouncyBall.position.set(hitPoint.x + 0.24, hitPoint.y + 0.06, hitPoint.z + 0.12);
+    this.bouncyBall.velocity.set(0, 0, 0);
+    this.snackPlatter.position.set(hitPoint.x - 0.34, hitPoint.y, hitPoint.z + 0.08);
+
+    // Exit placement mode & celebrate
+    this.arPlacement.toggleSurfacePlacementMode(false);
+    this.pet.triggerFlip();
+    this.pet.spawnStars(10);
+    sound.playHappy();
+    petManager.recordDailyInteraction('Surface Anchor');
+    petManager.say(
+      `📌 Anchored onto surface at (${hitPoint.x.toFixed(2)}m, ${hitPoint.y.toFixed(2)}m, ${hitPoint.z.toFixed(2)}m)!`,
+      4.5
+    );
+    this.spatialUI.refreshARControlsUI();
+  }
+
   update() {
-    const deltaTime = Math.min(this.clock.getDelta(), 0.1);
+    const deltaTime = Math.min(xb.getDeltaTime() || 0.016, 0.1);
 
     // Real-time needs & 24h streak progression
     petManager.tick(deltaTime);
 
-    // Pet & Shrine animations
+    // WebXR Hit-Test & Surface Reticle update
+    this.arPlacement.update(deltaTime);
+
+    // Smooth exponential damping towards anchored surface position
+    const dampFactor = 1 - Math.exp(-10 * deltaTime);
+    this.pet.position.lerp(this.targetPetPos, dampFactor);
+    this.streakShrine.position.lerp(this.targetShrinePos, dampFactor);
+
+    // Pet & Shrine animations + 3D HRTF Spatial Audio tracking
     const camera = xb.core.camera;
     this.pet.update(deltaTime, camera);
     this.streakShrine.update(deltaTime, camera);
+    sound.updateSpatialPositions(this.pet.position, camera);
 
     // Mini-games update
     this.miniGames.update(deltaTime);
-
-    // Bouncy ball physics
-    this.bouncyBall.update(deltaTime, this.floorY);
-
-    // If ball was thrown away, pet playfully watches and fetches it!
-    const ballDist = this.pet.position.distanceTo(this.bouncyBall.position);
-    if (ballDist > 0.3 && ballDist < 2.0 && this.bouncyBall.velocity.length() < 0.2) {
-      _ballDir.subVectors(this.bouncyBall.position, this.pet.position);
-      _ballDir.y = 0;
-      _ballDir.normalize();
-      this.pet.position.addScaledVector(_ballDir, deltaTime * 0.4);
-
-      if (ballDist < 0.35) {
-        _launchDir.set(0, 0.4, 0.2);
-        this.bouncyBall.launch(_launchDir, 1.2);
-        this.pet.triggerFlip();
-        this.pet.spawnHearts(4);
-        sound.playCatch(1);
-        petManager.recordDailyInteraction('Ball Fetch');
-        petManager.say('I fetched the ball! Yay! 🎾 (+10 XP)', 3);
-        petManager.gainExp(10);
-      }
-    }
 
     // Sleep mode lighting effect with exponential damping
     const isSleeping = petManager.getState().isSleeping;
@@ -140,9 +177,26 @@ class TamagotchiXRScene extends xb.Script {
 
   onSelectStart(event: xb.SelectEvent) {
     const target = event.target as THREE.Object3D | undefined;
+
+    // 1. If in WebXR Hit-Test Surface Placement Mode and user selects a surface (not the UI card)
+    if (
+      this.arPlacement.isPlacementModeActive &&
+      (!target || !this.isDescendantOf(target, this.spatialUI.card))
+    ) {
+      if (event.intersection && event.surface === xb.core.depth?.depthMesh) {
+        this.anchorPetAtSurfacePoint(event.intersection.point);
+        event.stopPropagation();
+        return;
+      } else if (this.arPlacement.hasValidSurfaceHit) {
+        this.anchorPetAtSurfacePoint(this.arPlacement.lastHitPosition);
+        event.stopPropagation();
+        return;
+      }
+    }
+
     if (!target) return;
 
-    // Check if player clicked a falling berry during Berry Catch game
+    // 2. Check if player clicked a falling berry during Berry Catch game
     if (this.miniGames.activeGame === 'berry_catch') {
       const caught = this.miniGames.catchBerryByMesh(target);
       if (caught) {
@@ -151,7 +205,7 @@ class TamagotchiXRScene extends xb.Script {
       }
     }
 
-    // Check if player clicked the 3D Daily Streak Shrine
+    // 3. Check if player clicked the 3D Daily Streak Shrine
     if (this.isDescendantOf(target, this.streakShrine)) {
       const reward = petManager.recordDailyInteraction('Streak Shrine');
       if (!reward) {
@@ -167,7 +221,7 @@ class TamagotchiXRScene extends xb.Script {
       return;
     }
 
-    // Check if player clicked the Pet itself
+    // 4. Check if player clicked the Pet itself
     if (this.isDescendantOf(target, this.pet)) {
       petManager.pet();
       this.pet.spawnHearts(6);
@@ -176,19 +230,21 @@ class TamagotchiXRScene extends xb.Script {
       return;
     }
 
-    // Check if player clicked the Bouncy Ball
+    // 5. Check if player clicked a 3D Snack on the Snack Platter to Feed Pet
+    const clickedSnack = this.snackPlatter.getSnackFromTarget(target);
+    if (clickedSnack) {
+      this.spatialUI.feedPet(clickedSnack);
+      event.stopPropagation();
+      return;
+    }
+
+    // 6. Check if player clicked the Toy Ball
     if (this.isDescendantOf(target, this.bouncyBall)) {
-      _launchDir
-        .set(
-          (Math.random() - 0.5) * 0.8,
-          0.8 + Math.random() * 0.4,
-          -1.0 - Math.random() * 0.5
-        )
-        .normalize();
-      this.bouncyBall.launch(_launchDir, 2.2);
+      sound.playCatch(1);
       this.pet.spawnStars(4);
-      petManager.recordDailyInteraction('Play Fetch');
-      petManager.say('Fetch! Go get it! 🎾', 3);
+      petManager.recordDailyInteraction('Play Toy');
+      petManager.gainExp(10);
+      petManager.say('Yay, my favorite toy ball! 🎾 (+10 XP)', 3);
       event.stopPropagation();
       return;
     }
@@ -202,18 +258,28 @@ class TamagotchiXRScene extends xb.Script {
     }
     return false;
   }
+
+  dispose() {
+    this.arPlacement.dispose();
+    this.pet.dispose();
+    this.streakShrine.dispose();
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   const options = new xb.Options();
   options.enableReticles();
+  options.enableDepth();
+  options.reticles.projectOnDepthMesh = true;
+  options.enableXRTransitions();
+  options.world.enablePlaneDetection();
   options.enableHands();
   options.hands.visualization = true;
   options.hands.visualizeJoints = true;
 
   options.setAppTitle('Tamagotchi XR');
   options.setAppDescription(
-    'Virtual pet companion with 24-hour Daily Streak rewards, real-time needs tracking, 3D avatar stylist, daily mini-games, and social growth leaderboards.'
+    'Virtual pet companion with AR Pass-Through, WebXR Hit-Test surface anchoring, 24-hour Daily Streak rewards, and real-time needs tracking.'
   );
 
   xb.add(new TamagotchiXRScene());

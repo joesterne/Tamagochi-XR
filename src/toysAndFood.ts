@@ -112,34 +112,13 @@ export class BouncyBall extends THREE.Group {
     this.add(this.sphereMesh);
   }
 
-  public launch(direction: THREE.Vector3, speed: number = 2.5) {
-    this.velocity.copy(direction).multiplyScalar(speed);
+  public launch(_direction: THREE.Vector3, _speed: number = 2.5) {
+    this.velocity.set(0, 0, 0);
     sound.playCatch(2);
   }
 
-  public update(deltaTime: number, floorY: number = 0.8) {
-    if (this.isHeld) return;
-
-    // Gravity
-    this.velocity.y -= 9.8 * deltaTime;
-
-    // Move
-    this.position.addScaledVector(this.velocity, deltaTime);
-
-    // Floor bounce
-    if (this.position.y <= floorY + this.radius) {
-      this.position.y = floorY + this.radius;
-      if (Math.abs(this.velocity.y) > 0.4) {
-        this.velocity.y = -this.velocity.y * 0.72; // restitution
-        this.velocity.x *= 0.88;
-        this.velocity.z *= 0.88;
-        sound.playChirp(0.8);
-      } else {
-        this.velocity.y = 0;
-        this.velocity.x *= 0.7;
-        this.velocity.z *= 0.7;
-      }
-    }
+  public update(_deltaTime: number, _floorY: number = 0.8) {
+    // Stationary: automatic movement and bouncing are disabled
   }
 }
 
@@ -171,3 +150,67 @@ export class BubbleSponge extends THREE.Group {
     this.add(this.spongeMesh);
   }
 }
+
+export class SnackPlatter extends THREE.Group {
+  public snacks: Map<THREE.Object3D, 'apple' | 'cake' | 'sushi' | 'cookie'> = new Map();
+  private platterTray: THREE.Mesh;
+  private platterRim: THREE.Mesh;
+
+  constructor() {
+    super();
+    this.name = 'SnackPlatter';
+    this.xb = { manipulation: true };
+
+    const trayGeo = new THREE.CylinderGeometry(0.15, 0.13, 0.018, 32);
+    const trayMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      roughness: 0.25,
+      metalness: 0.3,
+    });
+    this.platterTray = new THREE.Mesh(trayGeo, trayMat);
+    this.platterTray.position.y = 0.009;
+    this.platterTray.receiveShadow = true;
+    this.add(this.platterTray);
+
+    const rimGeo = new THREE.TorusGeometry(0.145, 0.007, 12, 36);
+    rimGeo.rotateX(Math.PI / 2);
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: 0xffd166,
+      roughness: 0.2,
+      metalness: 0.8,
+    });
+    this.platterRim = new THREE.Mesh(rimGeo, rimMat);
+    this.platterRim.position.y = 0.018;
+    this.add(this.platterRim);
+
+    const items: Array<{ type: 'apple' | 'cake' | 'sushi' | 'cookie'; x: number; z: number; y: number }> = [
+      { type: 'apple', x: -0.06, z: -0.05, y: 0.05 },
+      { type: 'cake', x: 0.06, z: -0.05, y: 0.04 },
+      { type: 'sushi', x: -0.06, z: 0.05, y: 0.038 },
+      { type: 'cookie', x: 0.06, z: 0.05, y: 0.028 },
+    ];
+
+    for (const item of items) {
+      const food = new FoodObject(item.type);
+      food.scale.setScalar(0.85);
+      food.position.set(item.x, item.y, item.z);
+      this.snacks.set(food, item.type);
+      this.add(food);
+    }
+  }
+
+  /**
+   * Resolves which specific snack on the platter was clicked, or defaults to 'apple' if the tray rim was clicked.
+   */
+  public getSnackFromTarget(target: THREE.Object3D): 'apple' | 'cake' | 'sushi' | 'cookie' | null {
+    let curr: THREE.Object3D | null = target;
+    while (curr) {
+      const matched = this.snacks.get(curr);
+      if (matched) return matched;
+      if (curr === this) return 'apple';
+      curr = curr.parent;
+    }
+    return null;
+  }
+}
+
