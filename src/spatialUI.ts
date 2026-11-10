@@ -366,13 +366,11 @@ export class TamagotchiSpatialUI {
           },
         }),
         new xb.UIButton({
-          label: 'Bubble Clean',
-          icon: 'soap',
+          label: 'Groom Pet',
+          icon: 'favorite',
           style: { flexGrow: 1, height: 42 },
           onClick: () => {
-            petManager.clean();
-            this.petRef.spawnBubbles(10);
-            this.refreshStreakPanelUI();
+            this.groomPet();
           },
         }),
       ],
@@ -399,6 +397,16 @@ export class TamagotchiSpatialUI {
             petManager.pet();
             this.petRef.spawnHearts(8);
             this.petRef.triggerFlip();
+            this.refreshStreakPanelUI();
+          },
+        }),
+        new xb.UIButton({
+          label: 'Bubble Clean',
+          icon: 'soap',
+          style: { flexGrow: 1, height: 42 },
+          onClick: () => {
+            petManager.clean();
+            this.petRef.spawnBubbles(10);
             this.refreshStreakPanelUI();
           },
         }),
@@ -732,6 +740,21 @@ export class TamagotchiSpatialUI {
    */
   public feedPet(snackType?: 'apple' | 'cake' | 'sushi' | 'cookie') {
     const streakReward = petManager.feedPet(snackType);
+    if (streakReward) {
+      this.streakShrineRef?.triggerCelebrationBurst();
+    } else {
+      this.streakShrineRef?.syncWithStreakState();
+    }
+    this.refreshStreakPanelUI();
+  }
+
+  /**
+   * Interactive 'Groom Pet' handler invoked from the Spatial UI button or 3D Grooming Brush.
+   * Triggers the 3D brushing animation, plays soothing brush & purr audio, increases `happiness`,
+   * and contributes to the 24-hour Daily Streak.
+   */
+  public groomPet() {
+    const streakReward = petManager.groomPet();
     if (streakReward) {
       this.streakShrineRef?.triggerCelebrationBurst();
     } else {

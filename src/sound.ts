@@ -449,6 +449,94 @@ class SpatialAudioEngine {
   }
 
   /**
+   * Soothing multi-stroke brushing sound + warm purr + gentle harp shimmer when grooming the pet.
+   */
+  public playGroom() {
+    this.userInteracted = true;
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const dest = this.getPetOutputNode(ctx);
+    const speciesMult = this.getSpeciesPitchMultiplier();
+
+    // 1. 4 gentle rhythmic brushing strokes (soft bandpass-filtered noise sweeps)
+    [0, 0.34, 0.68, 1.02].forEach((delay, strokeIdx) => {
+      if (this.noiseBuffer) {
+        const noise = ctx.createBufferSource();
+        noise.buffer = this.noiseBuffer;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        const startF = strokeIdx % 2 === 0 ? 750 : 950;
+        const endF = strokeIdx % 2 === 0 ? 1280 : 680;
+        filter.frequency.setValueAtTime(startF, now + delay);
+        filter.frequency.exponentialRampToValueAtTime(endF, now + delay + 0.24);
+        filter.Q.value = 1.5;
+
+        const brushGain = ctx.createGain();
+        brushGain.gain.setValueAtTime(0.001, now + delay);
+        brushGain.gain.linearRampToValueAtTime(0.14, now + delay + 0.08);
+        brushGain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.26);
+
+        noise.connect(filter);
+        filter.connect(brushGain);
+        brushGain.connect(dest);
+
+        noise.start(now + delay);
+        noise.stop(now + delay + 0.28);
+      }
+    });
+
+    // 2. Warm continuous soothing purr undertone
+    const purrOsc = ctx.createOscillator();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const purrGain = ctx.createGain();
+
+    purrOsc.type = 'sine';
+    purrOsc.frequency.setValueAtTime(135 * speciesMult, now);
+    purrOsc.frequency.linearRampToValueAtTime(168 * speciesMult, now + 0.7);
+    purrOsc.frequency.linearRampToValueAtTime(142 * speciesMult, now + 1.35);
+
+    lfo.frequency.value = 21; // 21Hz soothing purr flutter
+    lfoGain.gain.value = 0.045;
+    lfo.connect(lfoGain);
+    lfoGain.connect(purrGain.gain);
+
+    purrGain.gain.setValueAtTime(0.001, now);
+    purrGain.gain.linearRampToValueAtTime(0.085, now + 0.2);
+    purrGain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+
+    purrOsc.connect(purrGain);
+    purrGain.connect(dest);
+    purrOsc.start(now);
+    lfo.start(now);
+    purrOsc.stop(now + 1.45);
+    lfo.stop(now + 1.45);
+
+    // 3. Soothing pentatonic harp / chime arpeggio
+    const soothingNotes = [523.25, 659.25, 783.99, 987.77, 1174.66]; // C5, E5, G5, B5, D6 (Cmaj9)
+    soothingNotes.forEach((freq, idx) => {
+      const delay = 0.12 + idx * 0.22;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + delay);
+
+      gain.gain.setValueAtTime(0.001, now + delay);
+      gain.gain.linearRampToValueAtTime(0.11, now + delay + 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.55);
+
+      osc.connect(gain);
+      gain.connect(dest);
+
+      osc.start(now + delay);
+      osc.stop(now + delay + 0.58);
+    });
+  }
+
+  /**
    * Lullaby music-box chime when tucking the pet in for a nap.
    */
   public playSleep() {

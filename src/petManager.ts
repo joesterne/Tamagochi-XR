@@ -120,6 +120,7 @@ export class PetManager {
   private listeners: Array<(state: PetState) => void> = [];
   private streakRewardListeners: Array<(reward: DailyStreakRewardSummary, newStreak: number) => void> = [];
   private feedListeners: Array<(snackType: 'apple' | 'cake' | 'sushi' | 'cookie', streakReward: DailyStreakRewardSummary | null) => void> = [];
+  private groomListeners: Array<(streakReward: DailyStreakRewardSummary | null) => void> = [];
   private speechBubbleText: string = 'Interact with me today to claim your Daily Streak reward! 🔥';
   private speechBubbleTimer: number = 0;
 
@@ -641,6 +642,60 @@ export class PetManager {
       this.say(`Sparkling clean and squeaky fresh! ✨ (+20 XP)`);
     }
     this.notify();
+  }
+
+  public onGroomPet(cb: (streakReward: DailyStreakRewardSummary | null) => void): () => void {
+    this.groomListeners.push(cb);
+    return () => {
+      this.groomListeners = this.groomListeners.filter((l) => l !== cb);
+    };
+  }
+
+  /**
+   * Interactive 'Groom Pet' function that triggers the 3D brushing animation,
+   * plays a soothing brushing & purr audio clip, increases `happiness` (and hygiene),
+   * and contributes to the 24-hour Daily Streak.
+   */
+  public groomPet(): DailyStreakRewardSummary | null {
+    if (this.state.isSleeping) {
+      this.state.isSleeping = false;
+    }
+
+    const prevHappy = Math.round(this.state.happiness);
+    this.state.happiness = Math.min(100, this.state.happiness + 22);
+    const newHappy = Math.round(this.state.happiness);
+
+    this.state.hygiene = Math.min(100, this.state.hygiene + 25);
+    this.state.affection += 12;
+    this.state.totalPetCount += 1;
+    this.state.expression = 'starry';
+
+    // Play soothing brushing + purr + harp shimmer audio
+    sound.playGroom();
+    this.gainExp(25);
+
+    const streakReward = this.recordDailyInteraction('Groomed Coat');
+    if (!streakReward) {
+      const gained = Math.max(0, newHappy - prevHappy);
+      const happyMsg = gained > 0 ? `+${gained}% Happiness (${newHappy}%)` : `Happiness Max (100%)`;
+      this.say(
+        `*Purrrr...* Soothing brush strokes! ✨ ${happyMsg}, +25 XP | Streak: ${this.state.dailyStreak}d 🔥`,
+        4.5
+      );
+    }
+
+    // Notify 3D PetRenderer to trigger the 3D brushing animation
+    for (const listener of this.groomListeners) {
+      listener(streakReward);
+    }
+
+    setTimeout(() => {
+      this.updateExpression();
+      this.notify();
+    }, 1750);
+
+    this.notify();
+    return streakReward;
   }
 
   public pet() {

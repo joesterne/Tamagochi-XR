@@ -5,7 +5,7 @@ import { PetRenderer } from './petRenderer';
 import { petManager } from './petManager';
 import { TamagotchiSpatialUI } from './spatialUI';
 import { MiniGameManager } from './miniGames';
-import { BouncyBall, SnackPlatter } from './toysAndFood';
+import { BouncyBall, GroomingBrush, SnackPlatter } from './toysAndFood';
 import { DailyStreakShrine } from './streakShrine';
 import { ARPlacementSystem } from './arPlacement';
 import { sound } from './sound';
@@ -20,6 +20,7 @@ class TamagotchiXRScene extends xb.Script {
   private miniGames!: MiniGameManager;
   private bouncyBall!: BouncyBall;
   private snackPlatter!: SnackPlatter;
+  private groomingBrush!: GroomingBrush;
   private dirLight!: THREE.DirectionalLight;
   private hemiLight!: THREE.HemisphereLight;
 
@@ -88,6 +89,11 @@ class TamagotchiXRScene extends xb.Script {
     this.snackPlatter.position.set(-0.34, this.floorY, -0.76);
     this.add(this.snackPlatter);
 
+    this.groomingBrush = new GroomingBrush();
+    this.groomingBrush.position.set(0.18, this.floorY + 0.03, -0.68);
+    this.groomingBrush.rotation.y = -0.45;
+    this.add(this.groomingBrush);
+
     // 8. Spatial UI Card
     this.spatialUI = new TamagotchiSpatialUI(
       this.pet,
@@ -126,10 +132,11 @@ class TamagotchiXRScene extends xb.Script {
     const camPos = xb.core.camera.position;
     this.pet.lookAt(camPos.x, this.pet.position.y, camPos.z);
 
-    // Reposition toy ball & 3D snack platter stationary on the newly anchored surface
+    // Reposition toy ball, 3D snack platter & grooming brush stationary on the newly anchored surface
     this.bouncyBall.position.set(hitPoint.x + 0.24, hitPoint.y + 0.06, hitPoint.z + 0.12);
     this.bouncyBall.velocity.set(0, 0, 0);
     this.snackPlatter.position.set(hitPoint.x - 0.34, hitPoint.y, hitPoint.z + 0.08);
+    this.groomingBrush.position.set(hitPoint.x + 0.16, hitPoint.y + 0.03, hitPoint.z + 0.18);
 
     // Exit placement mode & celebrate
     this.arPlacement.toggleSurfacePlacementMode(false);
@@ -238,7 +245,14 @@ class TamagotchiXRScene extends xb.Script {
       return;
     }
 
-    // 6. Check if player clicked the Toy Ball
+    // 6. Check if player clicked the 3D Grooming Brush to Groom Pet
+    if (this.isDescendantOf(target, this.groomingBrush)) {
+      this.spatialUI.groomPet();
+      event.stopPropagation();
+      return;
+    }
+
+    // 7. Check if player clicked the Toy Ball
     if (this.isDescendantOf(target, this.bouncyBall)) {
       sound.playCatch(1);
       this.pet.spawnStars(4);

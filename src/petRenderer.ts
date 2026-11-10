@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PetAccessory, PetMood, PetSpecies, PetState } from './types';
 import { PET_COLORS, petManager } from './petManager';
-import { FoodObject } from './toysAndFood';
+import { FoodObject, GroomingBrush } from './toysAndFood';
 
 // Pre-allocated scratch color for smooth mood color interpolation
 const _targetMoodColor = new THREE.Color();
@@ -84,6 +84,13 @@ export class PetRenderer extends THREE.Group {
   private eatingBiteStage: number = 0;
   private eatingSnackType: 'apple' | 'cake' | 'sushi' | 'cookie' = 'apple';
 
+  // 3D Grooming / Brushing Animation state
+  private groomingPropGroup: THREE.Group;
+  private activeBrushProp?: GroomingBrush;
+  private isGroomingAnim: boolean = false;
+  private groomingAnimTime: number = 0;
+  private groomingStrokeStage: number = 0;
+
   // Particles
   private activeParticles: Array<{
     mesh: THREE.Mesh;
@@ -116,6 +123,7 @@ export class PetRenderer extends THREE.Group {
     this.ecstaticStarSatelliteGroup = new THREE.Group();
     this.moodAuraGroup = new THREE.Group();
     this.feedingPropGroup = new THREE.Group();
+    this.groomingPropGroup = new THREE.Group();
 
     // Standard materials
     this.bodyMaterial = new THREE.MeshStandardMaterial({
@@ -179,6 +187,7 @@ export class PetRenderer extends THREE.Group {
     this.headGroup.add(this.hornsGroup);
     this.headGroup.add(this.accessoryGroup);
     this.add(this.feedingPropGroup);
+    this.add(this.groomingPropGroup);
     this.add(this.moodIndicatorGroup);
     this.add(this.particlesGroup);
 
@@ -209,6 +218,11 @@ export class PetRenderer extends THREE.Group {
     // Automatically trigger the 3D feeding animation whenever petManager.feedPet() is invoked
     petManager.onFeedPet((snackType) => {
       this.triggerFeedingAnimation(snackType);
+    });
+
+    // Automatically trigger the 3D brushing animation whenever petManager.groomPet() is invoked
+    petManager.onGroomPet(() => {
+      this.triggerGroomingAnimation();
     });
   }
 
@@ -931,6 +945,26 @@ export class PetRenderer extends THREE.Group {
   }
 
   /**
+   * Triggers the interactive 3D Grooming / Brushing Animation:
+   * - Spawns a 3D `GroomingBrush` that glides across the pet's head and coat in 4 soothing strokes
+   * - Pet blissfully closes eyes, leans into the brush strokes, and emits hearts & sparkles
+   */
+  public triggerGroomingAnimation() {
+    this.clearGroup(this.groomingPropGroup);
+    this.activeBrushProp = new GroomingBrush();
+    this.activeBrushProp.xb = { pointerEvents: 'none' };
+    this.activeBrushProp.position.set(-0.14, 0.34, 0.08);
+    this.groomingPropGroup.add(this.activeBrushProp);
+
+    this.isGroomingAnim = true;
+    this.groomingAnimTime = 0;
+    this.groomingStrokeStage = 0;
+
+    this.spawnHearts(6);
+    this.spawnStars(6);
+  }
+
+  /**
    * Updates the 3D Mood Crystal, Orbiting Rings, Contextual Satellites, Ground Aura Ring,
    * Facial Expressions (brows, mouth, cheeks), and Body Posture based on `hunger` & `happiness`.
    */
@@ -1270,6 +1304,54 @@ export class PetRenderer extends THREE.Group {
         this.clearGroup(this.feedingPropGroup);
         this.activeFoodProp = undefined;
         this.bodyGroup.rotation.x = 0;
+        this.bodyGroup.position.y = 0;
+      }
+    }
+
+    // 3D Soothing Grooming / Brushing Animation (4 rhythmic brush strokes across head & coat)
+    if (this.isGroomingAnim) {
+      this.groomingAnimTime += deltaTime;
+      const t = this.groomingAnimTime;
+
+      if (t < 1.68) {
+        // 4 smooth brushing strokes synchronized with sound.playGroom()
+        const strokeWave = Math.sin(t * ((Math.PI * 4) / 1.68));
+        const strokeArc = Math.cos(t * ((Math.PI * 4) / 1.68));
+
+        if (this.activeBrushProp) {
+          this.activeBrushProp.position.set(
+            strokeWave * 0.14,
+            0.33 + Math.abs(strokeArc) * 0.045,
+            0.06 + strokeArc * 0.05
+          );
+          this.activeBrushProp.rotation.set(
+            0.35 + strokeArc * 0.18,
+            -strokeWave * 0.3,
+            -strokeWave * 0.45
+          );
+        }
+
+        // Pet leans blissfully into the brush strokes with contented closed eyes
+        this.bodyGroup.rotation.z = strokeWave * 0.12;
+        this.bodyGroup.position.y = Math.abs(strokeWave) * 0.025;
+        if (this.leftEyeMesh && this.rightEyeMesh) {
+          this.leftEyeMesh.scale.y = 0.16;
+          this.rightEyeMesh.scale.y = 0.16;
+        }
+
+        // Emit sparkle & heart bursts on each stroke peak
+        const currentStroke = Math.floor(t / 0.4);
+        if (currentStroke > this.groomingStrokeStage) {
+          this.groomingStrokeStage = currentStroke;
+          this.spawnStars(3);
+          this.spawnHearts(2);
+        }
+      } else {
+        // Finish grooming animation
+        this.isGroomingAnim = false;
+        this.clearGroup(this.groomingPropGroup);
+        this.activeBrushProp = undefined;
+        this.bodyGroup.rotation.z = 0;
         this.bodyGroup.position.y = 0;
       }
     }

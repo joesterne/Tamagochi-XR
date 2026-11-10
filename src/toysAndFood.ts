@@ -214,3 +214,62 @@ export class SnackPlatter extends THREE.Group {
   }
 }
 
+export class GroomingBrush extends THREE.Group {
+  constructor() {
+    super();
+    this.name = 'GroomingBrush';
+    this.xb = { manipulation: true };
+
+    const woodMat = new THREE.MeshStandardMaterial({
+      color: 0xf4a261,
+      roughness: 0.35,
+      metalness: 0.15,
+    });
+    const cushionMat = new THREE.MeshStandardMaterial({
+      color: 0xff85a2,
+      roughness: 0.65,
+    });
+    const bristleMat = new THREE.MeshStandardMaterial({
+      color: 0xffd166,
+      roughness: 0.25,
+      metalness: 0.6,
+    });
+    const tipMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+    // Paddle head
+    const headGeo = new THREE.CylinderGeometry(0.052, 0.052, 0.016, 24);
+    const headMesh = new THREE.Mesh(headGeo, woodMat);
+    headMesh.scale.set(1.0, 1.0, 1.25);
+    this.add(headMesh);
+
+    // Soft cushion pad underneath
+    const padGeo = new THREE.CylinderGeometry(0.044, 0.044, 0.01, 20);
+    const padMesh = new THREE.Mesh(padGeo, cushionMat);
+    padMesh.scale.set(1.0, 1.0, 1.2);
+    padMesh.position.y = -0.008;
+    this.add(padMesh);
+
+    // Ergonomic handle
+    const handleGeo = new THREE.CylinderGeometry(0.012, 0.016, 0.095, 16);
+    handleGeo.rotateX(Math.PI / 2);
+    const handleMesh = new THREE.Mesh(handleGeo, woodMat);
+    handleMesh.position.set(0, 0, 0.095);
+    this.add(handleMesh);
+
+    // Bristle pins pointing downward (-Y)
+    const pinGeo = new THREE.CylinderGeometry(0.0022, 0.0022, 0.022, 8);
+    const tipGeo = new THREE.SphereGeometry(0.0038, 8, 8);
+    for (let gx = -1; gx <= 1; gx++) {
+      for (let gz = -1; gz <= 1; gz++) {
+        const pin = new THREE.Mesh(pinGeo, bristleMat);
+        pin.position.set(gx * 0.018, -0.02, gz * 0.022);
+        const tip = new THREE.Mesh(tipGeo, tipMat);
+        tip.position.y = -0.011;
+        pin.add(tip);
+        this.add(pin);
+      }
+    }
+  }
+}
+
+
