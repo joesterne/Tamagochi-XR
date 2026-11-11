@@ -65,6 +65,7 @@ export class PetRenderer extends THREE.Group {
   private speechTexture: THREE.CanvasTexture;
   private speechMesh: THREE.Mesh;
   private lastRenderedHudSignature: string = '';
+  private lastModelSignature: string = '';
 
   // Animation states
   private animTime: number = 0;
@@ -326,6 +327,13 @@ export class PetRenderer extends THREE.Group {
   }
 
   public rebuildModel(state: PetState) {
+    const modelSig = `${state.species}|${state.colorId}|${state.accessory}|${state.stage}`;
+    if (this.lastModelSignature === modelSig) {
+      this.updateSpeechBubble(false);
+      return;
+    }
+    this.lastModelSignature = modelSig;
+
     // Clear dynamic groups
     this.clearGroup(this.headGroup);
     this.clearGroup(this.faceGroup);

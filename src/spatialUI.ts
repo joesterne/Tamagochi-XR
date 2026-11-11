@@ -9,10 +9,34 @@ import { ARPlacementSystem } from './arPlacement';
 
 export class TamagotchiSpatialUI {
   public card: xb.UICard;
+  public overlay: xb.UIOverlay;
   private petRef: PetRenderer;
   private miniGames: MiniGameManager;
   private streakShrineRef?: DailyStreakShrine;
   private arPlacementRef?: ARPlacementSystem;
+
+  // On-Screen XR Viewport Overlay Elements (xb.UIOverlay)
+  private overlayPetTitleText!: xb.UIText;
+  private overlayMoodBadgeText!: xb.UIText;
+  private overlayHungerText!: xb.UIText;
+  private overlayHungerBar!: xb.UIPanel;
+  private overlayHappinessText!: xb.UIText;
+  private overlayHappinessBar!: xb.UIPanel;
+  private overlaySleepBtn!: xb.UIButton;
+
+  // On-Screen 2D DOM HUD Overlay Elements
+  private domNightVeilEl?: HTMLElement;
+  private domHudContainer?: HTMLElement;
+  private domPetNameEl?: HTMLElement;
+  private domPetLevelEl?: HTMLElement;
+  private domPetMoodEl?: HTMLElement;
+  private domHungerFillEl?: HTMLElement;
+  private domHungerValueEl?: HTMLElement;
+  private domHungerStateEl?: HTMLElement;
+  private domHappinessFillEl?: HTMLElement;
+  private domHappinessValueEl?: HTMLElement;
+  private domHappinessStateEl?: HTMLElement;
+  private domSleepBtnEl?: HTMLButtonElement;
 
   // Active Tab: 'care' | 'streak' | 'stylist' | 'games' | 'leaderboard'
   private currentTab: 'care' | 'streak' | 'stylist' | 'games' | 'leaderboard' = 'care';
@@ -346,11 +370,11 @@ export class TamagotchiSpatialUI {
     });
 
     this.sleepBtn = new xb.UIButton({
-      label: 'Nap Time',
+      label: 'Put to Sleep',
       icon: 'bedtime',
       style: { flexGrow: 1, height: 42 },
       onClick: () => {
-        petManager.toggleSleep();
+        this.toggleSleepPet();
       },
     });
 
@@ -706,10 +730,323 @@ export class TamagotchiSpatialUI {
     // Initial position in XR
     this.card.position.set(0, 1.45, -1.05);
 
+    // Build On-Screen XR Viewport UIOverlay & 2D DOM HUD Overlay
+    this.overlay = this.buildOnScreenXROverlay();
+    this.buildOnScreenDomHudOverlay();
+
     // Subscribe to state updates
     petManager.subscribe((state) => this.onStateChanged(state));
     this.refreshStreakPanelUI();
     this.refreshARControlsUI();
+  }
+
+  /**
+   * Creates an on-screen XR Blocks `xb.UIOverlay` anchored to the bottom of the viewport
+   * that displays the pet's live 'hunger' and 'happiness' stats as real-time progress bars.
+   */
+  private buildOnScreenXROverlay(): xb.UIOverlay {
+    this.overlayPetTitleText = new xb.UIText({
+      text: 'MOCHI (BABY) - LVL 3',
+      pointerEvents: 'none',
+      style: { fontSize: 15, fontWeight: 'bold', color: '#ffffff' },
+    });
+
+    this.overlayMoodBadgeText = new xb.UIText({
+      text: 'MOOD: ECSTATIC',
+      pointerEvents: 'none',
+      style: { fontSize: 13, fontWeight: 'bold', color: '#06d6a0' },
+    });
+
+    const topHeaderRow = new xb.UIPanel({
+      pointerEvents: 'none',
+      style: {
+        width: '100%',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+      },
+      children: [this.overlayPetTitleText, this.overlayMoodBadgeText],
+    });
+
+    this.overlayHungerText = new xb.UIText({
+      text: '80% (Well-Fed)',
+      pointerEvents: 'none',
+      style: { fontSize: 13, fontWeight: 'bold', color: '#ff85a2' },
+    });
+
+    this.overlayHungerBar = new xb.UIPanel({
+      pointerEvents: 'none',
+      style: {
+        width: '80%',
+        height: '100%',
+        backgroundColor: '#ff5c8a',
+        borderRadius: 7,
+      },
+    });
+
+    const hungerColumn = new xb.UIPanel({
+      pointerEvents: 'none',
+      style: {
+        flexGrow: 1,
+        flexDirection: 'column',
+        gap: 5,
+        padding: 8,
+        backgroundColor: 'rgba(255, 255, 255, 0.06)',
+        borderRadius: 12,
+      },
+      children: [
+        new xb.UIPanel({
+          pointerEvents: 'none',
+          style: {
+            width: '100%',
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          },
+          children: [
+            new xb.UIText({
+              text: 'HUNGER',
+              pointerEvents: 'none',
+              style: { fontSize: 13, fontWeight: 'bold', color: '#ffffff' },
+            }),
+            this.overlayHungerText,
+          ],
+        }),
+        new xb.UIPanel({
+          pointerEvents: 'none',
+          style: {
+            width: '100%',
+            height: 14,
+            backgroundColor: 'rgba(255, 255, 255, 0.14)',
+            borderRadius: 7,
+            overflow: 'hidden',
+          },
+          children: [this.overlayHungerBar],
+        }),
+      ],
+    });
+
+    this.overlayHappinessText = new xb.UIText({
+      text: '85% (Joyful)',
+      pointerEvents: 'none',
+      style: { fontSize: 13, fontWeight: 'bold', color: '#06d6a0' },
+    });
+
+    this.overlayHappinessBar = new xb.UIPanel({
+      pointerEvents: 'none',
+      style: {
+        width: '85%',
+        height: '100%',
+        backgroundColor: '#06d6a0',
+        borderRadius: 7,
+      },
+    });
+
+    const happinessColumn = new xb.UIPanel({
+      pointerEvents: 'none',
+      style: {
+        flexGrow: 1,
+        flexDirection: 'column',
+        gap: 5,
+        padding: 8,
+        backgroundColor: 'rgba(255, 255, 255, 0.06)',
+        borderRadius: 12,
+      },
+      children: [
+        new xb.UIPanel({
+          pointerEvents: 'none',
+          style: {
+            width: '100%',
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          },
+          children: [
+            new xb.UIText({
+              text: 'HAPPINESS',
+              pointerEvents: 'none',
+              style: { fontSize: 13, fontWeight: 'bold', color: '#ffffff' },
+            }),
+            this.overlayHappinessText,
+          ],
+        }),
+        new xb.UIPanel({
+          pointerEvents: 'none',
+          style: {
+            width: '100%',
+            height: 14,
+            backgroundColor: 'rgba(255, 255, 255, 0.14)',
+            borderRadius: 7,
+            overflow: 'hidden',
+          },
+          children: [this.overlayHappinessBar],
+        }),
+      ],
+    });
+
+    const statsBarsRow = new xb.UIPanel({
+      pointerEvents: 'none',
+      style: {
+        width: '100%',
+        flexDirection: 'row',
+        gap: 12,
+      },
+      children: [hungerColumn, happinessColumn],
+    });
+
+    this.overlaySleepBtn = new xb.UIButton({
+      label: 'Put to Sleep',
+      icon: 'bedtime',
+      style: { flexGrow: 1, height: 36, fontSize: 13 },
+      onClick: () => this.toggleSleepPet(),
+    });
+
+    const quickOverlayActions = new xb.UIPanel({
+      style: {
+        width: '100%',
+        flexDirection: 'row',
+        gap: 10,
+      },
+      children: [
+        new xb.UIButton({
+          label: 'Feed Pet (+Hunger)',
+          icon: 'restaurant',
+          style: { flexGrow: 1, height: 36, fontSize: 13 },
+          onClick: () => this.feedPet(),
+        }),
+        new xb.UIButton({
+          label: 'Groom Pet (+Happiness)',
+          icon: 'favorite',
+          style: { flexGrow: 1, height: 36, fontSize: 13 },
+          onClick: () => this.groomPet(),
+        }),
+        this.overlaySleepBtn,
+      ],
+    });
+
+    const overlay = new xb.UIOverlay({
+      style: {
+        width: 660,
+        position: 'absolute',
+        left: '50%',
+        bottom: 24,
+        transform: { translateX: '-50%' },
+        flexDirection: 'column',
+        gap: 8,
+        padding: 14,
+        backgroundColor: 'rgba(13, 18, 30, 0.88)',
+        borderColor: 'rgba(255, 255, 255, 0.18)',
+        borderWidth: 1.5,
+        borderRadius: 18,
+      },
+      children: [
+        new xb.UIExitButton(),
+        topHeaderRow,
+        statsBarsRow,
+        quickOverlayActions,
+      ],
+    });
+    overlay.name = 'Pet Stats Real-Time HUD Overlay';
+    return overlay;
+  }
+
+  /**
+   * Builds a 2D HTML DOM on-screen UI overlay anchored at the top of the screen
+   * so 'hunger' and 'happiness' progress bars and the 'Put to Sleep' action are always visible on-screen in real time.
+   */
+  private buildOnScreenDomHudOverlay() {
+    if (typeof document === 'undefined') return;
+
+    const existingVeil = document.getElementById('night-time-dim-veil');
+    if (existingVeil) existingVeil.remove();
+
+    const nightVeil = document.createElement('div');
+    nightVeil.id = 'night-time-dim-veil';
+    nightVeil.className = 'night-time-dim-veil';
+    nightVeil.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(nightVeil);
+    this.domNightVeilEl = nightVeil;
+
+    const existing = document.getElementById('pet-stats-hud-overlay');
+    if (existing) existing.remove();
+
+    const container = document.createElement('div');
+    container.id = 'pet-stats-hud-overlay';
+    container.className = 'pet-hud-overlay';
+    container.setAttribute('role', 'region');
+    container.setAttribute('aria-label', 'Virtual Pet Real-Time Hunger and Happiness Stats Overlay');
+
+    container.innerHTML = `
+      <div class="pet-hud-header">
+        <div class="pet-hud-title-group">
+          <span class="pet-hud-name" id="hud-pet-name">Mochi (BABY)</span>
+          <span class="pet-hud-level" id="hud-pet-level">LVL 3</span>
+        </div>
+        <span class="pet-hud-mood" id="hud-pet-mood">MOOD: ECSTATIC</span>
+      </div>
+      <div class="pet-hud-bars-grid">
+        <div class="pet-hud-stat-card">
+          <div class="pet-hud-stat-top">
+            <span class="pet-hud-stat-label">🍎 Hunger</span>
+            <div class="pet-hud-stat-value-group">
+              <span class="pet-hud-stat-state" id="hud-hunger-state">Well-Fed</span>
+              <span class="pet-hud-stat-value" id="hud-hunger-value">80%</span>
+            </div>
+          </div>
+          <div class="pet-hud-bar-track" role="progressbar" aria-label="Pet Hunger" aria-valuemin="0" aria-valuemax="100" aria-valuenow="80">
+            <div class="pet-hud-bar-fill" id="hud-hunger-fill"></div>
+          </div>
+        </div>
+        <div class="pet-hud-stat-card">
+          <div class="pet-hud-stat-top">
+            <span class="pet-hud-stat-label">💖 Happiness</span>
+            <div class="pet-hud-stat-value-group">
+              <span class="pet-hud-stat-state" id="hud-happiness-state">Joyful</span>
+              <span class="pet-hud-stat-value" id="hud-happiness-value">85%</span>
+            </div>
+          </div>
+          <div class="pet-hud-bar-track" role="progressbar" aria-label="Pet Happiness" aria-valuemin="0" aria-valuemax="100" aria-valuenow="85">
+            <div class="pet-hud-bar-fill" id="hud-happiness-fill"></div>
+          </div>
+        </div>
+      </div>
+      <div class="pet-hud-actions">
+        <button type="button" class="pet-hud-action-btn" id="hud-btn-feed">🍎 Feed Pet (+Hunger)</button>
+        <button type="button" class="pet-hud-action-btn" id="hud-btn-groom">🪮 Groom Pet (+Happiness)</button>
+        <button type="button" class="pet-hud-action-btn" id="hud-btn-sleep">🌙 Put to Sleep</button>
+      </div>
+    `;
+
+    document.body.appendChild(container);
+
+    this.domHudContainer = container;
+    this.domPetNameEl = container.querySelector('#hud-pet-name') as HTMLElement;
+    this.domPetLevelEl = container.querySelector('#hud-pet-level') as HTMLElement;
+    this.domPetMoodEl = container.querySelector('#hud-pet-mood') as HTMLElement;
+    this.domHungerFillEl = container.querySelector('#hud-hunger-fill') as HTMLElement;
+    this.domHungerValueEl = container.querySelector('#hud-hunger-value') as HTMLElement;
+    this.domHungerStateEl = container.querySelector('#hud-hunger-state') as HTMLElement;
+    this.domHappinessFillEl = container.querySelector('#hud-happiness-fill') as HTMLElement;
+    this.domHappinessValueEl = container.querySelector('#hud-happiness-value') as HTMLElement;
+    this.domHappinessStateEl = container.querySelector('#hud-happiness-state') as HTMLElement;
+    this.domSleepBtnEl = container.querySelector('#hud-btn-sleep') as HTMLButtonElement;
+
+    const feedBtn = container.querySelector('#hud-btn-feed');
+    feedBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.feedPet();
+    });
+
+    const groomBtn = container.querySelector('#hud-btn-groom');
+    groomBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.groomPet();
+    });
+
+    this.domSleepBtnEl?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleSleepPet();
+    });
   }
 
   public refreshARControlsUI() {
@@ -760,6 +1097,16 @@ export class TamagotchiSpatialUI {
     } else {
       this.streakShrineRef?.syncWithStreakState();
     }
+    this.refreshStreakPanelUI();
+  }
+
+  /**
+   * Interactive 'Put to Sleep' / 'Wake Up' handler invoked from the HUD actions or Care panel.
+   * Initiates the pet's sleeping state, pauses hunger depletion, and triggers a gentle night-time UI dimming effect.
+   */
+  public toggleSleepPet() {
+    petManager.toggleSleep();
+    this.streakShrineRef?.syncWithStreakState();
     this.refreshStreakPanelUI();
   }
 
@@ -922,19 +1269,131 @@ export class TamagotchiSpatialUI {
     const hap = Math.round(state.happiness);
     const hyg = Math.round(state.hygiene);
 
+    // Dynamic color & status calculation for Hunger and Happiness
+    const hungerColor = state.isSleeping
+      ? '#c49df5'
+      : h < 25
+        ? '#ff0054'
+        : h < 50
+          ? '#ffd166'
+          : '#ff5c8a';
+    const hungerTag = state.isSleeping
+      ? 'Paused (Sleeping)'
+      : h < 25
+        ? 'Starving!'
+        : h < 50
+          ? 'Peckish'
+          : h >= 85
+            ? 'Full'
+            : 'Well-Fed';
+
+    const happinessColor = hap < 25 ? '#3a86ff' : hap < 50 ? '#ffd166' : '#06d6a0';
+    const happinessTag = state.isSleeping
+      ? 'Dreaming'
+      : hap < 25
+        ? 'Lonely!'
+        : hap < 50
+          ? 'Needs Play'
+          : hap >= 85
+            ? 'Radiant'
+            : 'Joyful';
+
     this.hungerText.text = `${h}%`;
-    this.hungerBar.style.width = `${Math.max(5, h)}%`;
+    this.hungerBar.style.width = `${Math.max(4, h)}%`;
+    this.hungerBar.style.backgroundColor = hungerColor;
 
     this.energyText.text = `${e}%`;
-    this.energyBar.style.width = `${Math.max(5, e)}%`;
+    this.energyBar.style.width = `${Math.max(4, e)}%`;
 
     this.happinessText.text = `${hap}%`;
-    this.happinessBar.style.width = `${Math.max(5, hap)}%`;
+    this.happinessBar.style.width = `${Math.max(4, hap)}%`;
+    this.happinessBar.style.backgroundColor = happinessColor;
 
     this.hygieneText.text = `${hyg}%`;
-    this.hygieneBar.style.width = `${Math.max(5, hyg)}%`;
+    this.hygieneBar.style.width = `${Math.max(4, hyg)}%`;
 
-    this.sleepBtn.label = state.isSleeping ? 'Wake Up' : 'Nap Time';
+    // Update On-Screen XR Viewport UIOverlay progress bars & night-time UI dimming
+    if (this.overlayPetTitleText) {
+      this.overlayPetTitleText.text = `${state.name.toUpperCase()} (${state.stage.toUpperCase()}) - LVL ${state.level}`;
+    }
+    if (this.overlayMoodBadgeText) {
+      this.overlayMoodBadgeText.text = `MOOD: ${moodInfo.label}`;
+      this.overlayMoodBadgeText.style.color = moodInfo.cssColor;
+    }
+    if (this.overlayHungerText && this.overlayHungerBar) {
+      this.overlayHungerText.text = `${h}% (${hungerTag})`;
+      this.overlayHungerText.style.color = hungerColor;
+      this.overlayHungerBar.style.width = `${Math.max(4, state.hunger)}%`;
+      this.overlayHungerBar.style.backgroundColor = hungerColor;
+    }
+    if (this.overlayHappinessText && this.overlayHappinessBar) {
+      this.overlayHappinessText.text = `${hap}% (${happinessTag})`;
+      this.overlayHappinessText.style.color = happinessColor;
+      this.overlayHappinessBar.style.width = `${Math.max(4, state.happiness)}%`;
+      this.overlayHappinessBar.style.backgroundColor = happinessColor;
+    }
+    if (this.overlaySleepBtn) {
+      this.overlaySleepBtn.label = state.isSleeping ? 'Wake Up Pet' : 'Put to Sleep';
+    }
+    if (this.overlay && this.overlay.style) {
+      this.overlay.style.backgroundColor = state.isSleeping
+        ? 'rgba(8, 10, 24, 0.94)'
+        : 'rgba(13, 18, 30, 0.88)';
+      this.overlay.style.borderColor = state.isSleeping
+        ? 'rgba(161, 98, 232, 0.45)'
+        : 'rgba(255, 255, 255, 0.18)';
+    }
+    if (this.card && this.card.style) {
+      this.card.style.backgroundColor = state.isSleeping
+        ? 'rgba(8, 10, 24, 0.94)'
+        : 'rgba(15, 20, 32, 0.88)';
+      this.card.style.borderColor = state.isSleeping
+        ? 'rgba(161, 98, 232, 0.42)'
+        : 'rgba(255, 255, 255, 0.18)';
+    }
+
+    // Update On-Screen 2D DOM HUD Overlay progress bars & gentle night-time UI dimming
+    this.domNightVeilEl?.classList.toggle('active', state.isSleeping);
+    this.domHudContainer?.classList.toggle('is-sleeping-night', state.isSleeping);
+
+    if (this.domSleepBtnEl) {
+      this.domSleepBtnEl.textContent = state.isSleeping ? '☀️ Wake Up Pet' : '🌙 Put to Sleep';
+      this.domSleepBtnEl.classList.toggle('sleep-active', state.isSleeping);
+    }
+
+    if (this.domPetNameEl) {
+      this.domPetNameEl.textContent = `${state.name} (${state.stage.toUpperCase()})`;
+    }
+    if (this.domPetLevelEl) {
+      this.domPetLevelEl.textContent = `LVL ${state.level}`;
+    }
+    if (this.domPetMoodEl) {
+      this.domPetMoodEl.textContent = `MOOD: ${moodInfo.label}`;
+      this.domPetMoodEl.style.color = moodInfo.cssColor;
+      this.domPetMoodEl.style.borderColor = moodInfo.cssColor;
+    }
+    if (this.domHungerFillEl && this.domHungerValueEl && this.domHungerStateEl) {
+      const exactHunger = Math.max(0, Math.min(100, state.hunger));
+      this.domHungerFillEl.style.width = `${exactHunger.toFixed(1)}%`;
+      this.domHungerFillEl.style.backgroundColor = hungerColor;
+      this.domHungerFillEl.style.boxShadow = `0 0 10px ${hungerColor}88`;
+      this.domHungerValueEl.textContent = `${h}%`;
+      this.domHungerValueEl.style.color = hungerColor;
+      this.domHungerStateEl.textContent = hungerTag;
+      this.domHungerFillEl.parentElement?.setAttribute('aria-valuenow', String(h));
+    }
+    if (this.domHappinessFillEl && this.domHappinessValueEl && this.domHappinessStateEl) {
+      const exactHappiness = Math.max(0, Math.min(100, state.happiness));
+      this.domHappinessFillEl.style.width = `${exactHappiness.toFixed(1)}%`;
+      this.domHappinessFillEl.style.backgroundColor = happinessColor;
+      this.domHappinessFillEl.style.boxShadow = `0 0 10px ${happinessColor}88`;
+      this.domHappinessValueEl.textContent = `${hap}%`;
+      this.domHappinessValueEl.style.color = happinessColor;
+      this.domHappinessStateEl.textContent = happinessTag;
+      this.domHappinessFillEl.parentElement?.setAttribute('aria-valuenow', String(hap));
+    }
+
+    this.sleepBtn.label = state.isSleeping ? 'Wake Up Pet' : 'Put to Sleep';
 
     // Stylist labels
     this.speciesText.text = `Current: ${state.species.toUpperCase()}`;
@@ -1066,4 +1525,10 @@ export class TamagotchiSpatialUI {
       this.leaderboardListPanel.add(row);
     });
   }
+
+  public dispose() {
+    this.domNightVeilEl?.remove();
+    this.domHudContainer?.remove();
+  }
 }
+

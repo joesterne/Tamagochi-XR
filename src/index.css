@@ -117,3 +117,228 @@ button {
 .XRButton:active {
   transform: scale(0.98);
 }
+
+/* On-Screen Real-Time Pet Stats HUD Overlay */
+.pet-hud-overlay {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  width: min(640px, calc(100vw - 28px));
+  background: rgba(13, 18, 30, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
+  padding: 12px 18px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+  color: #ffffff;
+  font-family: 'Google Sans', 'Segoe UI', Roboto, sans-serif;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pet-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pet-hud-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pet-hud-name {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+}
+
+.pet-hud-level {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffd166;
+  background: rgba(255, 209, 102, 0.16);
+  border: 1px solid rgba(255, 209, 102, 0.5);
+  padding: 2px 8px;
+  border-radius: 8px;
+  line-height: 18px;
+}
+
+.pet-hud-mood {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(6, 214, 160, 0.5);
+  background: rgba(6, 214, 160, 0.15);
+  color: #06d6a0;
+  line-height: 18px;
+  transition: color 0.25s ease, border-color 0.25s ease, background-color 0.25s ease;
+}
+
+.pet-hud-bars-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 520px) {
+  .pet-hud-bars-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+.pet-hud-stat-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pet-hud-stat-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.pet-hud-stat-label {
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #f1f5f9;
+}
+
+.pet-hud-stat-value-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pet-hud-stat-state {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.82;
+}
+
+.pet-hud-stat-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.pet-hud-bar-track {
+  width: 100%;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+.pet-hud-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.22s linear, background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.pet-hud-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pet-hud-action-btn {
+  flex: 1;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  font-family: 'Google Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 0.15s ease, transform 0.12s ease, border-color 0.15s ease;
+}
+
+.pet-hud-action-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.pet-hud-action-btn:active {
+  transform: scale(0.97);
+}
+
+.pet-hud-action-btn.sleep-active {
+  background: rgba(161, 98, 232, 0.28);
+  border-color: rgba(196, 157, 245, 0.65);
+  color: #e9d5ff;
+  box-shadow: 0 0 12px rgba(161, 98, 232, 0.35);
+}
+
+/* Gentle Night-Time UI Dimming Veil */
+.night-time-dim-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    circle at 50% 45%,
+    rgba(10, 14, 38, 0.38) 0%,
+    rgba(5, 8, 24, 0.68) 100%
+  );
+  transition: opacity 0.65s ease;
+}
+
+.night-time-dim-veil.active {
+  opacity: 1;
+}
+
+/* Gentle Night-Time Dimming on the On-Screen HUD Overlay */
+.pet-hud-overlay {
+  transition:
+    background-color 0.55s ease,
+    border-color 0.55s ease,
+    box-shadow 0.55s ease,
+    filter 0.55s ease;
+}
+
+.pet-hud-overlay.is-sleeping-night {
+  background: rgba(8, 10, 24, 0.92);
+  border-color: rgba(161, 98, 232, 0.42);
+  box-shadow:
+    0 10px 36px rgba(3, 5, 16, 0.78),
+    0 0 22px rgba(123, 44, 191, 0.22);
+  filter: brightness(0.88);
+}
+
+.pet-hud-overlay.is-sleeping-night .pet-hud-stat-card {
+  background: rgba(18, 22, 46, 0.55);
+  border-color: rgba(161, 98, 232, 0.22);
+}
+
+

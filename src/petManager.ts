@@ -123,6 +123,7 @@ export class PetManager {
   private groomListeners: Array<(streakReward: DailyStreakRewardSummary | null) => void> = [];
   private speechBubbleText: string = 'Interact with me today to claim your Daily Streak reward! 🔥';
   private speechBubbleTimer: number = 0;
+  private liveNotifyTimer: number = 0;
 
   constructor() {
     this.state = this.loadState();
@@ -164,10 +165,9 @@ export class PetManager {
     this.state.ageHours += cappedSeconds / 3600;
 
     if (this.state.isSleeping) {
-      // Restore energy while sleeping
+      // Restore energy while sleeping; hunger depletion is paused during sleep
       this.state.energy = Math.min(100, this.state.energy + (cappedSeconds / 3600) * 25);
-      this.state.hunger = Math.max(10, this.state.hunger - decay * 0.5);
-      this.state.hygiene = Math.max(10, this.state.hygiene - decay * 0.3);
+      this.state.hygiene = Math.max(10, this.state.hygiene - decay * 0.2);
     } else {
       this.state.hunger = Math.max(5, this.state.hunger - decay);
       this.state.energy = Math.max(5, this.state.energy - decay * 0.8);
@@ -345,21 +345,18 @@ export class PetManager {
    * Called every frame/second to decay stats smoothly
    */
   public tick(deltaTimeSeconds: number) {
-    // Gradual decay (1 full bar ~ 25 minutes of active play if not cared for)
-    const decayRate = deltaTimeSeconds * 0.05;
+    // Smooth real-time decay so progress bars visibly update in real time
+    const decayRate = deltaTimeSeconds * 0.35;
 
     if (this.state.isSleeping) {
-      this.state.energy = Math.min(100, this.state.energy + deltaTimeSeconds * 0.8);
-      this.state.hunger = Math.max(0, this.state.hunger - decayRate * 0.4);
-      this.state.hygiene = Math.max(0, this.state.hygiene - decayRate * 0.2);
-      if (this.state.energy >= 100) {
-        this.wakeUp();
-      }
+      // While sleeping, hunger depletion is completely paused and energy gently restores
+      this.state.energy = Math.min(100, this.state.energy + deltaTimeSeconds * 1.2);
+      this.state.hygiene = Math.max(0, this.state.hygiene - decayRate * 0.15);
     } else {
       this.state.hunger = Math.max(0, this.state.hunger - decayRate);
-      this.state.energy = Math.max(0, this.state.energy - decayRate * 0.7);
-      this.state.happiness = Math.max(0, this.state.happiness - decayRate * 0.6);
-      this.state.hygiene = Math.max(0, this.state.hygiene - decayRate * 0.5);
+      this.state.energy = Math.max(0, this.state.energy - decayRate * 0.5);
+      this.state.happiness = Math.max(0, this.state.happiness - decayRate * 0.75);
+      this.state.hygiene = Math.max(0, this.state.hygiene - decayRate * 0.4);
     }
 
     this.state.ageHours += deltaTimeSeconds / 3600;
@@ -379,6 +376,15 @@ export class PetManager {
     }
 
     this.updateExpression();
+
+    // Broadcast real-time stat updates 4 times per second for smooth progress bars
+    this.liveNotifyTimer += deltaTimeSeconds;
+    if (this.liveNotifyTimer >= 0.25) {
+      this.liveNotifyTimer = 0;
+      for (const listener of this.listeners) {
+        listener(this.state);
+      }
+    }
   }
 
   private updateDefaultSpeechBubble() {
@@ -736,15 +742,18 @@ export class PetManager {
     this.state.isSleeping = true;
     this.state.expression = 'sleepy';
     sound.playSleep();
-    this.say(`Tucked in snugly! Sweet dreams... 🌙💤`);
+    const streakReward = this.recordDailyInteraction('Put to Sleep');
+    if (!streakReward) {
+      this.say(`🌙 Tucked in snugly! Hunger depletion paused while sleeping... Zzz 💤`, 4.5);
+    }
     this.notify();
   }
 
   public wakeUp() {
     this.state.isSleeping = false;
-    this.state.expression = 'happy';
+    this.updateExpression();
     sound.playChirp(1.2);
-    this.say(`Good morning! Ready for an adventurous day! ☀️`);
+    this.say(`☀️ Good morning! Rested & ready for an adventurous day!`, 4);
     this.notify();
   }
 

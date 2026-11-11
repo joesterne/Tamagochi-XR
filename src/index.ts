@@ -94,7 +94,7 @@ class TamagotchiXRScene extends xb.Script {
     this.groomingBrush.rotation.y = -0.45;
     this.add(this.groomingBrush);
 
-    // 8. Spatial UI Card
+    // 8. Spatial UI Card & On-Screen Real-Time Stats Overlay
     this.spatialUI = new TamagotchiSpatialUI(
       this.pet,
       this.miniGames,
@@ -104,6 +104,7 @@ class TamagotchiXRScene extends xb.Script {
     this.spatialUI.card.position.set(-0.55, 1.45, -1.05);
     this.spatialUI.card.rotation.y = 0.25;
     this.add(this.spatialUI.card);
+    this.add(this.spatialUI.overlay);
 
     // Initial greeting
     setTimeout(() => {
@@ -185,10 +186,12 @@ class TamagotchiXRScene extends xb.Script {
   onSelectStart(event: xb.SelectEvent) {
     const target = event.target as THREE.Object3D | undefined;
 
-    // 1. If in WebXR Hit-Test Surface Placement Mode and user selects a surface (not the UI card)
+    // 1. If in WebXR Hit-Test Surface Placement Mode and user selects a surface (not the UI card or overlay)
     if (
       this.arPlacement.isPlacementModeActive &&
-      (!target || !this.isDescendantOf(target, this.spatialUI.card))
+      (!target ||
+        (!this.isDescendantOf(target, this.spatialUI.card) &&
+          !this.isDescendantOf(target, this.spatialUI.overlay)))
     ) {
       if (event.intersection && event.surface === xb.core.depth?.depthMesh) {
         this.anchorPetAtSurfacePoint(event.intersection.point);
@@ -274,6 +277,7 @@ class TamagotchiXRScene extends xb.Script {
   }
 
   dispose() {
+    this.spatialUI.dispose();
     this.arPlacement.dispose();
     this.pet.dispose();
     this.streakShrine.dispose();
