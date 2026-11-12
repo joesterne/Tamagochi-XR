@@ -1004,11 +1004,12 @@ export class PetRenderer extends THREE.Group {
   public updateSpeechBubble(force: boolean = false) {
     const text = petManager.getSpeechBubble();
     const moodInfo = petManager.getMoodInfo();
+    const personalityInfo = petManager.getPersonalityInfo();
     const state = petManager.getState();
     const h = Math.round(state.hunger);
     const hap = Math.round(state.happiness);
 
-    const signature = `${moodInfo.mood}|${h}|${hap}|${text}`;
+    const signature = `${personalityInfo.personality}|${personalityInfo.ageDaysFormatted}|${moodInfo.mood}|${h}|${hap}|${text}`;
     if (!force && signature === this.lastRenderedHudSignature) {
       return;
     }
@@ -1026,7 +1027,7 @@ export class PetRenderer extends THREE.Group {
     const r = 48;
 
     ctx.fillStyle = 'rgba(15, 20, 34, 0.92)';
-    ctx.strokeStyle = moodInfo.cssColor;
+    ctx.strokeStyle = personalityInfo.cssColor;
     ctx.lineWidth = 8;
 
     ctx.beginPath();
@@ -1050,18 +1051,19 @@ export class PetRenderer extends THREE.Group {
     ctx.fill();
     ctx.stroke();
 
-    // Top Mood Indicator Header Pill
+    // Top Personality & Mood Indicator Header Pill
     ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
     ctx.fillRect(x + 28, y + 20, w - 56, 86);
 
-    ctx.font = 'bold 44px "Google Sans", sans-serif';
-    ctx.fillStyle = moodInfo.cssColor;
+    ctx.font = 'bold 40px "Google Sans", sans-serif';
+    ctx.fillStyle = personalityInfo.cssColor;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(
-      `${moodInfo.iconEmoji} MOOD: ${moodInfo.label}   •   🍎 Hunger ${h}%   •   ❤️ Happy ${hap}%`,
+      `${personalityInfo.iconEmoji} ${personalityInfo.label} (${personalityInfo.ageDaysFormatted})   •   ${moodInfo.iconEmoji} ${moodInfo.label}   •   🍎 ${h}%  ❤️ ${hap}%`,
       this.speechCanvas.width / 2,
-      y + 64
+      y + 64,
+      w - 72
     );
 
     // Speech Message Text
@@ -1246,10 +1248,12 @@ export class PetRenderer extends THREE.Group {
    */
   private updateMoodVisuals(deltaTime: number, state: PetState) {
     const moodInfo = petManager.getMoodInfo();
+    const personalityInfo = petManager.getPersonalityInfo();
     const mood: PetMood = moodInfo.mood;
+    const personality = personalityInfo.personality;
 
-    // 1. Smoothly interpolate 3D Mood Crystal & Ground Aura colors
-    _targetMoodColor.setHex(moodInfo.hexColor);
+    // 1. Smoothly interpolate 3D Mood Crystal & Ground Aura colors (blended with Personality tint)
+    _targetMoodColor.setHex(personalityInfo.hexColor);
     _targetAccentColor.setHex(moodInfo.accentHex);
 
     const colorLerp = 1 - Math.exp(-8 * deltaTime);
@@ -1261,29 +1265,29 @@ export class PetRenderer extends THREE.Group {
 
     // 2. Dynamic Spin & Bobbing of Overhead 3D Mood Plumbob
     const spinSpeed =
-      mood === 'ecstatic'
-        ? 4.2
-        : mood === 'distressed'
+      personality === 'Playful' || mood === 'ecstatic'
+        ? 4.4
+        : mood === 'distressed' || personality === 'Hangry'
           ? 5.5
-          : mood === 'hungry'
-            ? 2.8
-            : mood === 'sad'
-              ? 0.9
+          : personality === 'Curious'
+            ? 3.2
+            : personality === 'Sleepy' || mood === 'sad'
+              ? 0.85
               : 2.0;
 
     this.moodCrystalMesh.rotation.y += deltaTime * spinSpeed;
     this.moodOuterRingMesh.rotation.z += deltaTime * (spinSpeed * 0.8);
     this.moodInnerRingMesh.rotation.x -= deltaTime * (spinSpeed * 1.1);
 
-    const bobOffset = Math.sin(this.animTime * (mood === 'sad' ? 1.8 : 3.5)) * 0.015;
+    const bobOffset = Math.sin(this.animTime * (personality === 'Sleepy' ? 1.5 : 3.5)) * 0.015;
     const distressJitter =
       mood === 'distressed' ? Math.sin(this.animTime * 28) * 0.008 : 0;
     this.moodIndicatorGroup.position.set(distressJitter, 0.41 + bobOffset, 0);
 
-    // 3. Contextual 3D Satellites for Hunger, Sadness, and Ecstatic states
+    // 3. Contextual 3D Satellites for Hunger, Sadness, and Ecstatic/Playful/Wise states
     const isHungry = !state.isSleeping && state.hunger < 50;
     const isSad = !state.isSleeping && state.happiness < 50;
-    const isEcstatic = mood === 'ecstatic';
+    const isEcstatic = mood === 'ecstatic' || personality === 'Playful' || personality === 'Wise';
 
     this.hungerSatelliteGroup.visible = isHungry;
     if (isHungry) {
@@ -1310,7 +1314,14 @@ export class PetRenderer extends THREE.Group {
     }
 
     // 4. Grounded Mood Aura Ring Pulse
-    const auraPulseSpeed = mood === 'distressed' ? 7.0 : mood === 'ecstatic' ? 4.5 : 2.5;
+    const auraPulseSpeed =
+      mood === 'distressed'
+        ? 7.0
+        : personality === 'Playful'
+          ? 4.8
+          : personality === 'Sleepy'
+            ? 1.4
+            : 2.5;
     const auraScale = 1.0 + Math.sin(this.animTime * auraPulseSpeed) * 0.06;
     this.moodAuraGroup.scale.setScalar(auraScale);
     this.moodAuraRingMaterial.opacity =
@@ -1318,24 +1329,39 @@ export class PetRenderer extends THREE.Group {
         ? 0.55 + Math.sin(this.animTime * 10) * 0.3
         : 0.65;
 
-    // 5. Dynamic 3D Facial Expression Morphing (Eyebrows, Mouth, Cheeks)
+    // 5. Dynamic 3D Facial Expression Morphing (Eyebrows, Pupils, Mouth, Cheeks)
     if (this.leftBrowMesh && this.rightBrowMesh) {
       let targetLeftBrowRot = 0;
       let targetRightBrowRot = 0;
-      let targetBrowY = 0.242;
+      let targetLeftBrowY = 0.242;
+      let targetRightBrowY = 0.242;
 
-      if (mood === 'ecstatic') {
+      if (personality === 'Curious') {
+        // Asymmetric inquisitive raised eyebrow for Curious personality
+        targetLeftBrowRot = 0.24;
+        targetRightBrowRot = 0.08;
+        targetLeftBrowY = 0.252;
+        targetRightBrowY = 0.239;
+      } else if (personality === 'Sleepy') {
+        targetLeftBrowRot = 0.14;
+        targetRightBrowRot = -0.14;
+        targetLeftBrowY = 0.235;
+        targetRightBrowY = 0.235;
+      } else if (personality === 'Playful' || mood === 'ecstatic') {
         targetLeftBrowRot = 0.18;
         targetRightBrowRot = -0.18;
-        targetBrowY = 0.248;
+        targetLeftBrowY = 0.248;
+        targetRightBrowY = 0.248;
       } else if (mood === 'sad' || mood === 'distressed') {
         targetLeftBrowRot = 0.32;
         targetRightBrowRot = -0.32;
-        targetBrowY = 0.236;
-      } else if (mood === 'hungry') {
-        targetLeftBrowRot = 0.22;
-        targetRightBrowRot = -0.22;
-        targetBrowY = 0.239;
+        targetLeftBrowY = 0.236;
+        targetRightBrowY = 0.236;
+      } else if (mood === 'hungry' || personality === 'Hangry') {
+        targetLeftBrowRot = -0.22;
+        targetRightBrowRot = 0.22;
+        targetLeftBrowY = 0.239;
+        targetRightBrowY = 0.239;
       }
 
       this.leftBrowMesh.rotation.z = THREE.MathUtils.damp(
@@ -1352,11 +1378,56 @@ export class PetRenderer extends THREE.Group {
       );
       this.leftBrowMesh.position.y = THREE.MathUtils.damp(
         this.leftBrowMesh.position.y,
-        targetBrowY,
+        targetLeftBrowY,
         8,
         deltaTime
       );
-      this.rightBrowMesh.position.y = this.leftBrowMesh.position.y;
+      this.rightBrowMesh.position.y = THREE.MathUtils.damp(
+        this.rightBrowMesh.position.y,
+        targetRightBrowY,
+        8,
+        deltaTime
+      );
+    }
+
+    // Curious Pupil Scanning: pupils look side-to-side when Curious, or center otherwise
+    if (this.leftPupilMesh && this.rightPupilMesh) {
+      const scanX =
+        personality === 'Curious'
+          ? Math.sin(this.animTime * 2.2) * 0.0085
+          : personality === 'Playful'
+            ? Math.sin(this.animTime * 4.5) * 0.004
+            : 0;
+      const scanY =
+        personality === 'Curious'
+          ? Math.cos(this.animTime * 1.6) * 0.0045
+          : personality === 'Sleepy'
+            ? -0.004
+            : 0;
+      this.leftPupilMesh.position.x = THREE.MathUtils.damp(
+        this.leftPupilMesh.position.x,
+        scanX,
+        10,
+        deltaTime
+      );
+      this.rightPupilMesh.position.x = THREE.MathUtils.damp(
+        this.rightPupilMesh.position.x,
+        scanX,
+        10,
+        deltaTime
+      );
+      this.leftPupilMesh.position.y = THREE.MathUtils.damp(
+        this.leftPupilMesh.position.y,
+        scanY,
+        10,
+        deltaTime
+      );
+      this.rightPupilMesh.position.y = THREE.MathUtils.damp(
+        this.rightPupilMesh.position.y,
+        scanY,
+        10,
+        deltaTime
+      );
     }
 
     if (this.mouthMesh) {
@@ -1373,12 +1444,24 @@ export class PetRenderer extends THREE.Group {
         targetMouthY = 0.128;
         targetScaleX = 0.95;
         targetScaleY = 0.85;
-      } else if (mood === 'hungry') {
+      } else if (mood === 'hungry' || personality === 'Hangry') {
         this.mouthMesh.rotation.z = 0;
         targetMouthY = 0.133;
         targetScaleX = 0.65;
         targetScaleY = 0.65 + Math.sin(this.animTime * 10) * 0.15;
-      } else if (mood === 'ecstatic') {
+      } else if (personality === 'Curious') {
+        // Small cute "o" mouth of wonder
+        this.mouthMesh.rotation.z = Math.PI;
+        targetMouthY = 0.138;
+        targetScaleX = 0.58;
+        targetScaleY = 0.95;
+      } else if (personality === 'Sleepy') {
+        // Gentle yawn / soft sleepy mouth
+        this.mouthMesh.rotation.z = Math.PI;
+        targetMouthY = 0.137;
+        targetScaleX = 0.68;
+        targetScaleY = 0.55 + Math.max(0, Math.sin(this.animTime * 1.2)) * 0.45;
+      } else if (personality === 'Playful' || mood === 'ecstatic') {
         this.mouthMesh.rotation.z = Math.PI;
         targetMouthY = 0.142;
         targetScaleX = 1.28;
@@ -1419,7 +1502,7 @@ export class PetRenderer extends THREE.Group {
       deltaTime
     );
 
-    // 6. Tummy Rumble Animation when Hungry & Head Droop when Sad
+    // 6. Tummy Rumble Animation when Hungry & Personality-Driven Head Pitch / Tilt
     if (this.bellyMesh && !this.isEatingAnim) {
       if (isHungry) {
         const rumble = Math.sin(this.animTime * 22) * 0.035;
@@ -1431,26 +1514,50 @@ export class PetRenderer extends THREE.Group {
       }
     }
 
-    const targetHeadPitch = isSad ? 0.14 : isEcstatic ? -0.06 : 0;
+    const targetHeadPitch =
+      personality === 'Sleepy'
+        ? 0.12 + Math.sin(this.animTime * 1.6) * 0.05
+        : isSad
+          ? 0.14
+          : personality === 'Playful' || isEcstatic
+            ? -0.06
+            : personality === 'Curious'
+              ? -0.04
+              : 0;
+    const targetHeadRoll =
+      personality === 'Curious'
+        ? Math.sin(this.animTime * 2.1) * 0.19
+        : personality === 'Playful'
+          ? Math.sin(this.animTime * 4.5) * 0.09
+          : 0;
+
     this.headGroup.rotation.x = THREE.MathUtils.damp(
       this.headGroup.rotation.x,
       targetHeadPitch,
       6,
       deltaTime
     );
+    this.headGroup.rotation.z = THREE.MathUtils.damp(
+      this.headGroup.rotation.z,
+      targetHeadRoll,
+      6,
+      deltaTime
+    );
 
-    // 7. Periodic Ambient Mood Particles (Sparkles when Ecstatic, Sweat/Tear drop when Distressed)
+    // 7. Periodic Ambient Personality & Mood Particles
     this.ambientMoodParticleTimer += deltaTime;
     if (this.ambientMoodParticleTimer >= 2.2) {
       this.ambientMoodParticleTimer = 0;
-      if (mood === 'ecstatic') {
+      if (personality === 'Playful' || personality === 'Wise' || mood === 'ecstatic') {
         this.spawnStars(2);
+      } else if (personality === 'Affectionate') {
+        this.spawnHearts(2);
       } else if (mood === 'distressed') {
         this.spawnBubbles(1);
       }
     }
 
-    // Keep overhead billboard synced with live hunger & happiness %
+    // Keep overhead billboard synced with live personality, age, hunger & happiness %
     this.updateSpeechBubble(false);
   }
 
@@ -1458,18 +1565,33 @@ export class PetRenderer extends THREE.Group {
     this.animTime += deltaTime;
 
     const state = petManager.getState();
+    const personality = petManager.getPersonality();
 
     // Smoothly damp overall evolution scale
     const currentS = THREE.MathUtils.damp(this.scale.x, this.currentScaleTarget, 6, deltaTime);
     this.scale.setScalar(currentS);
 
-    // Update 3D Visual Mood Indicator System
+    // Update 3D Visual Mood & Personality Indicator System
     this.updateMoodVisuals(deltaTime, state);
 
-    // Idle breathing & bobbing (scales smoothly with mood energy)
+    // Idle breathing & bobbing (scales smoothly with personality & mood energy)
     const mood = petManager.getMood();
-    const breathSpeed = state.isSleeping ? 1.5 : mood === 'ecstatic' ? 4.0 : mood === 'sad' ? 2.0 : 2.8;
-    const breathAmount = state.isSleeping ? 0.026 : mood === 'ecstatic' ? 0.055 : 0.038;
+    const breathSpeed =
+      state.isSleeping || personality === 'Sleepy'
+        ? 1.45
+        : personality === 'Playful' || mood === 'ecstatic'
+          ? 4.2
+          : personality === 'Wise'
+            ? 2.1
+            : mood === 'sad'
+              ? 2.0
+              : 2.8;
+    const breathAmount =
+      state.isSleeping || personality === 'Sleepy'
+        ? 0.026
+        : personality === 'Playful' || mood === 'ecstatic'
+          ? 0.056
+          : 0.038;
     const breath = Math.sin(this.animTime * breathSpeed);
 
     const targetHeadScaleY = 1.0 + breath * breathAmount;
@@ -1480,18 +1602,36 @@ export class PetRenderer extends THREE.Group {
 
     // Cute Chubby Arm Wave & Breathing Follow-Through
     if (this.leftArmMesh && this.rightArmMesh) {
-      const armWaveSpeed = state.isSleeping ? 1.2 : mood === 'ecstatic' ? 7.5 : 3.2;
-      const armWave = Math.sin(this.animTime * armWaveSpeed) * (mood === 'ecstatic' ? 0.28 : 0.12);
+      const armWaveSpeed =
+        state.isSleeping || personality === 'Sleepy'
+          ? 1.2
+          : personality === 'Playful' || mood === 'ecstatic'
+            ? 7.8
+            : personality === 'Curious'
+              ? 4.4
+              : 3.2;
+      const armWaveAmp =
+        personality === 'Playful' || mood === 'ecstatic'
+          ? 0.3
+          : personality === 'Sleepy'
+            ? 0.05
+            : 0.12;
+      const armWave = Math.sin(this.animTime * armWaveSpeed) * armWaveAmp;
       const targetLeftZ = 0.52 + armWave;
       const targetRightZ = -0.52 - armWave;
       this.leftArmMesh.rotation.z = THREE.MathUtils.damp(this.leftArmMesh.rotation.z, targetLeftZ, 10, deltaTime);
       this.rightArmMesh.rotation.z = THREE.MathUtils.damp(this.rightArmMesh.rotation.z, targetRightZ, 10, deltaTime);
     }
 
-    // Ear wobbly damping & droop when sad/hungry
+    // Ear wobbly damping & droop when sad/sleepy or perked when curious
     if (this.earsGroup.children.length > 0) {
       const earWobble = Math.sin(this.animTime * (breathSpeed * 1.4)) * 0.07;
-      const earDroop = state.happiness < 45 ? 0.24 : 0;
+      const earDroop =
+        state.happiness < 45 || personality === 'Sleepy'
+          ? 0.24
+          : personality === 'Curious'
+            ? -0.08
+            : 0;
       this.earsGroup.children.forEach((ear, idx) => {
         const side = idx % 2 === 0 ? 1 : -1;
         ear.rotation.x = THREE.MathUtils.damp(ear.rotation.x, -0.08 + earWobble * side, 10, deltaTime);
@@ -1503,7 +1643,14 @@ export class PetRenderer extends THREE.Group {
 
     // Wing flapping
     if (this.wingsGroup.children.length > 0) {
-      const flapSpeed = state.isSleeping ? 1.0 : mood === 'ecstatic' ? 10.5 : mood === 'sad' ? 3.5 : 7.5;
+      const flapSpeed =
+        state.isSleeping || personality === 'Sleepy'
+          ? 1.0
+          : personality === 'Playful' || mood === 'ecstatic'
+            ? 10.5
+            : mood === 'sad'
+              ? 3.5
+              : 7.5;
       const wingFlap = Math.sin(this.animTime * flapSpeed) * 0.32;
       if (this.wingsGroup.children[0]) {
         this.wingsGroup.children[0].rotation.y = wingFlap;
@@ -1513,21 +1660,23 @@ export class PetRenderer extends THREE.Group {
       }
     }
 
-    // Tail wagging speed scales with happiness
+    // Tail wagging speed scales with happiness & Playful personality
     if (this.tailGroup.children.length > 0) {
-      const wagSpeed = 1.5 + (state.happiness / 100) * 5.5;
-      const tailWag = Math.sin(this.animTime * wagSpeed) * 0.2;
+      const wagSpeed =
+        (personality === 'Playful' ? 3.5 : 1.5) + (state.happiness / 100) * 5.5;
+      const tailWag = Math.sin(this.animTime * wagSpeed) * 0.22;
       this.tailGroup.children.forEach((t) => {
         t.rotation.y = tailWag;
       });
     }
 
-    // Smooth Blinking & Eye Openness Damping
+    // Smooth Blinking & Personality-Aware Eye Openness Damping
     this.blinkTimer -= deltaTime;
     if (this.blinkTimer <= 0) {
       this.isBlinking = true;
       this.blinkProgress = 0;
-      this.blinkTimer = 2.5 + Math.random() * 3.5;
+      this.blinkTimer =
+        personality === 'Sleepy' ? 1.4 + Math.random() * 1.8 : 2.5 + Math.random() * 3.5;
     }
 
     if (this.isBlinking) {
@@ -1545,11 +1694,13 @@ export class PetRenderer extends THREE.Group {
         ? 0.12
         : this.isGroomingAnim
           ? 0.16
-          : mood === 'sad' || mood === 'distressed'
-            ? 0.84
-            : mood === 'ecstatic'
-              ? 1.24
-              : 1.15;
+          : personality === 'Sleepy'
+            ? 0.45
+            : mood === 'sad' || mood === 'distressed'
+              ? 0.84
+              : personality === 'Curious' || personality === 'Playful' || mood === 'ecstatic'
+                ? 1.25
+                : 1.15;
       this.leftEyeMesh.scale.y = THREE.MathUtils.damp(this.leftEyeMesh.scale.y, targetEyeY, 12, deltaTime);
       this.rightEyeMesh.scale.y = THREE.MathUtils.damp(this.rightEyeMesh.scale.y, targetEyeY, 12, deltaTime);
     }

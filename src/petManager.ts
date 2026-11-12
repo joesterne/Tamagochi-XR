@@ -1,11 +1,13 @@
 import {
   EvolutionStage,
   LeaderboardEntry,
+  PersonalityInfo,
   PetAccessory,
   PetColorDef,
   PetColorId,
   PetExpression,
   PetMood,
+  PetPersonality,
   PetSpecies,
   PetState,
 } from './types';
@@ -121,6 +123,9 @@ export class PetManager {
   private streakRewardListeners: Array<(reward: DailyStreakRewardSummary, newStreak: number) => void> = [];
   private feedListeners: Array<(snackType: 'apple' | 'cake' | 'sushi' | 'cookie', streakReward: DailyStreakRewardSummary | null) => void> = [];
   private groomListeners: Array<(streakReward: DailyStreakRewardSummary | null) => void> = [];
+  private playListeners: Array<(streakReward: DailyStreakRewardSummary | null) => void> = [];
+  private levelUpListeners: Array<(newLevel: number, stage: EvolutionStage) => void> = [];
+  private xpGainListeners: Array<(amount: number, reason: string, leveledUp: boolean, newLevel: number) => void> = [];
   private speechBubbleText: string = 'Interact with me today to claim your Daily Streak reward! 🔥';
   private speechBubbleTimer: number = 0;
   private liveNotifyTimer: number = 0;
@@ -136,7 +141,12 @@ export class PetManager {
       const data = localStorage.getItem(STORAGE_KEY);
       if (data) {
         const parsed = JSON.parse(data);
-        return { ...DEFAULT_STATE, ...parsed };
+        const merged: PetState = { ...DEFAULT_STATE, ...parsed };
+        const req = this.getExpForNextLevel(merged.level);
+        if (merged.experience >= req) {
+          merged.experience = merged.experience % req;
+        }
+        return merged;
       }
     } catch {
       // Fallback
@@ -404,10 +414,21 @@ export class PetManager {
       this.speechBubbleText = "Yaaawn... feeling sleepy... 💤";
     } else if (this.state.happiness < 40) {
       this.speechBubbleText = "Let's play a mini-game together! 🎮";
-    } else if (this.state.happiness > 80 && this.state.hunger > 70) {
-      this.speechBubbleText = `I'm having so much fun with you! ❤️`;
     } else {
-      this.speechBubbleText = `Chirp! Pet me or play fetch! ✨`;
+      const p = this.getPersonality();
+      if (p === 'Curious') {
+        this.speechBubbleText = `Ooh, what's that over there? Let's explore! 🔍`;
+      } else if (p === 'Playful') {
+        this.speechBubbleText = `Wheee! I have so much energy! Let's play! 🎾`;
+      } else if (p === 'Wise') {
+        this.speechBubbleText = `A calm mind and a warm heart... ✨`;
+      } else if (p === 'Affectionate') {
+        this.speechBubbleText = `I'm so happy being by your side! 💖`;
+      } else if (p === 'Sleepy') {
+        this.speechBubbleText = `*Blinks slowly...* Feeling cozy and drowsy... 💤`;
+      } else {
+        this.speechBubbleText = `Chirp! Pet me or play fetch! ✨`;
+      }
     }
   }
 
@@ -563,6 +584,196 @@ export class PetManager {
     this.notify();
   }
 
+  /**
+   * Computes the pet's current Personality mood ('Playful', 'Sleepy', 'Curious', 'Affectionate', 'Wise', 'Hangry')
+   * dynamically based on its current stats (energy, happiness, hunger, affection, isSleeping) and age (ageHours).
+   */
+  public getPersonality(): PetPersonality {
+    const { hunger, happiness, energy, affection, ageHours, isSleeping, stage } = this.state;
+
+    // 1. Sleepy: Currently sleeping, low energy (< 45%), or young baby (< 12h) with moderate-low energy (< 58%)
+    if (isSleeping || energy < 45 || (ageHours < 12 && energy < 58)) {
+      return 'Sleepy';
+    }
+
+    // 2. Hangry: Low hunger (< 38%) makes the pet restless and food-focused
+    if (hunger < 38) {
+      return 'Hangry';
+    }
+
+    // 3. Curious: Young pets (< 24h / < 1.0 day) exploring the world, or inquisitive moderate-happiness states
+    if (
+      (ageHours < 24 && happiness < 84 && energy >= 45) ||
+      (happiness >= 42 && happiness < 74 && energy >= 52)
+    ) {
+      return 'Curious';
+    }
+
+    // 4. Wise: Mature / Elder pets (age >= 96h / 4.0+ days or adult/mystic stage) with balanced stats
+    if ((ageHours >= 96 || stage === 'adult' || stage === 'mystic') && hunger >= 55 && happiness >= 68 && energy >= 50) {
+      return 'Wise';
+    }
+
+    // 5. Playful: High energy (>= 68%) and joyful happiness (>= 74%), especially lively in youth/child/teen pets
+    if (energy >= 68 && happiness >= 74) {
+      return 'Playful';
+    }
+
+    // 6. Affectionate: High happiness & bond when calm
+    if (happiness >= 70 && affection >= 110) {
+      return 'Affectionate';
+    }
+
+    // Age-driven fallback
+    if (ageHours < 24) return 'Curious';
+    if (ageHours >= 96) return 'Wise';
+    return 'Playful';
+  }
+
+  /**
+   * Returns structured metadata and visual styling for the pet's current Personality mood & Age phase.
+   */
+  public getPersonalityInfo(): PersonalityInfo {
+    const personality = this.getPersonality();
+    const ageDays = this.state.ageHours / 24;
+    const ageDaysFormatted = `${ageDays.toFixed(1)}d`;
+    const e = Math.round(this.state.energy);
+    const hap = Math.round(this.state.happiness);
+    const h = Math.round(this.state.hunger);
+
+    const ageTitle =
+      ageDays < 1.0
+        ? 'Young Sprout'
+        : ageDays < 4.0
+          ? 'Lively Youth'
+          : 'Elder Sage';
+
+    switch (personality) {
+      case 'Playful':
+        return {
+          personality,
+          label: 'PLAYFUL',
+          ageTitle,
+          ageDaysFormatted,
+          summary: `${ageTitle} (${ageDaysFormatted}) | High Energy (${e}%) & Joy (${hap}%)`,
+          cssColor: '#00f5d4',
+          hexColor: 0x00f5d4,
+          iconEmoji: '🎾',
+        };
+      case 'Sleepy':
+        return {
+          personality,
+          label: 'SLEEPY',
+          ageTitle,
+          ageDaysFormatted,
+          summary: `${ageTitle} (${ageDaysFormatted}) | Drowsy Energy (${e}%) - Needs Rest`,
+          cssColor: '#c49df5',
+          hexColor: 0xc49df5,
+          iconEmoji: '💤',
+        };
+      case 'Curious':
+        return {
+          personality,
+          label: 'CURIOUS',
+          ageTitle,
+          ageDaysFormatted,
+          summary: `${ageTitle} (${ageDaysFormatted}) | Inquisitive Explorer (Age ${ageDaysFormatted}, Alert ${e}%)`,
+          cssColor: '#38bdf8',
+          hexColor: 0x38bdf8,
+          iconEmoji: '🔍',
+        };
+      case 'Wise':
+        return {
+          personality,
+          label: 'WISE',
+          ageTitle,
+          ageDaysFormatted,
+          summary: `${ageTitle} (${ageDaysFormatted}) | Serene Mature Companion (Age ${ageDaysFormatted})`,
+          cssColor: '#ffd166',
+          hexColor: 0xffd166,
+          iconEmoji: '✨',
+        };
+      case 'Affectionate':
+        return {
+          personality,
+          label: 'AFFECTIONATE',
+          ageTitle,
+          ageDaysFormatted,
+          summary: `${ageTitle} (${ageDaysFormatted}) | Devoted Bond (${this.state.affection} Affection)`,
+          cssColor: '#ff85a2',
+          hexColor: 0xff85a2,
+          iconEmoji: '💖',
+        };
+      case 'Hangry':
+        return {
+          personality,
+          label: 'HANGRY',
+          ageTitle,
+          ageDaysFormatted,
+          summary: `${ageTitle} (${ageDaysFormatted}) | Craving Snacks (Hunger ${h}%)`,
+          cssColor: '#ff9f1c',
+          hexColor: 0xff9f1c,
+          iconEmoji: '🍎',
+        };
+    }
+  }
+
+  /**
+   * Adjusts stats and age to demonstrate a specific personality mood ('Playful', 'Sleepy', 'Curious', 'Wise', 'Affectionate').
+   */
+  public applyPersonalityPreset(preset: PetPersonality) {
+    if (preset === 'Playful') {
+      this.state.isSleeping = false;
+      this.state.ageHours = 36; // 1.5 days (Lively Youth)
+      this.state.energy = 92;
+      this.state.happiness = 90;
+      this.state.hunger = 85;
+      sound.playHappy();
+      this.say('🎾 Personality: PLAYFUL! (1.5d Youth, 92% Energy, 90% Happiness) Let’s bounce and play!', 4.5);
+    } else if (preset === 'Sleepy') {
+      this.state.isSleeping = false;
+      this.state.energy = 28;
+      this.state.happiness = 72;
+      this.state.hunger = 75;
+      sound.playChirp(0.78);
+      this.say('💤 Personality: SLEEPY! (28% Energy) *Yaaawn* My eyelids are getting heavy...', 4.5);
+    } else if (preset === 'Curious') {
+      this.state.isSleeping = false;
+      this.state.ageHours = 8; // 0.3 days (Young Sprout)
+      this.state.energy = 78;
+      this.state.happiness = 66;
+      this.state.hunger = 76;
+      sound.playChirp(1.18);
+      this.say('🔍 Personality: CURIOUS! (0.3d Young Sprout) *Tilts head* Ooh, what is that over there?', 4.5);
+    } else if (preset === 'Wise') {
+      this.state.isSleeping = false;
+      this.state.ageHours = 120; // 5.0 days (Elder Sage)
+      this.state.energy = 80;
+      this.state.happiness = 86;
+      this.state.hunger = 84;
+      sound.playChirp(0.95);
+      this.say('✨ Personality: WISE! (5.0d Elder Sage) Serene, balanced, and full of ancient wisdom.', 4.5);
+    } else if (preset === 'Affectionate') {
+      this.state.isSleeping = false;
+      this.state.ageHours = 54; // 2.3 days
+      this.state.energy = 60;
+      this.state.happiness = 88;
+      this.state.hunger = 82;
+      this.state.affection = Math.max(180, this.state.affection);
+      sound.playHappy();
+      this.say('💖 Personality: AFFECTIONATE! Deep bond and warm cuddles!', 4.5);
+    } else if (preset === 'Hangry') {
+      this.state.isSleeping = false;
+      this.state.hunger = 26;
+      this.state.energy = 70;
+      this.state.happiness = 58;
+      sound.playChirp(0.82);
+      this.say('🍎 Personality: HANGRY! (26% Hunger) Feed me a treat right now please!', 4.5);
+    }
+    this.updateExpression();
+    this.notify();
+  }
+
   public onFeedPet(
     cb: (snackType: 'apple' | 'cake' | 'sushi' | 'cookie', streakReward: DailyStreakRewardSummary | null) => void
   ): () => void {
@@ -600,15 +811,16 @@ export class PetManager {
 
     // Trigger 3D spatial multi-bite eating sound effect
     sound.playEat(chosenSnack);
-    this.gainExp(25);
+    const leveledUp = this.gainExp(25, `Fed ${chosenSnack.toUpperCase()}`);
 
     // Contribute to the 24-hour Daily Streak
     const streakReward = this.recordDailyInteraction(`Fed ${chosenSnack.toUpperCase()}`);
     if (!streakReward) {
       const gained = Math.max(0, newHunger - prevHunger);
       const hungerMsg = gained > 0 ? `+${gained}% Hunger (${newHunger}%)` : `Hunger Full (100%)`;
+      const lvlPrefix = leveledUp ? `🎉 LEVEL UP TO LVL ${this.state.level}! ` : '';
       this.say(
-        `Nom nom nom! Ate ${chosenSnack.toUpperCase()}! 😋 ${hungerMsg}, +25 XP | Streak: ${this.state.dailyStreak}d 🔥`,
+        `${lvlPrefix}Nom nom nom! Ate ${chosenSnack.toUpperCase()}! 😋 ${hungerMsg}, +25 XP (${this.state.experience}/${this.getExpForNextLevel(this.state.level)} XP)`,
         4.5
       );
     }
@@ -641,11 +853,12 @@ export class PetManager {
     this.state.affection += 8;
 
     sound.playSplash();
-    this.gainExp(20);
+    const leveledUp = this.gainExp(20, 'Clean');
 
     const streakReward = this.recordDailyInteraction('Bubble Bath');
     if (!streakReward) {
-      this.say(`Sparkling clean and squeaky fresh! ✨ (+20 XP)`);
+      const lvlPrefix = leveledUp ? `🎉 LEVEL UP TO LVL ${this.state.level}! ` : '';
+      this.say(`${lvlPrefix}Sparkling clean and squeaky fresh! ✨ (+20 XP)`);
     }
     this.notify();
   }
@@ -660,7 +873,7 @@ export class PetManager {
   /**
    * Interactive 'Groom Pet' function that triggers the 3D brushing animation,
    * plays a soothing brushing & purr audio clip, increases `happiness` (and hygiene),
-   * and contributes to the 24-hour Daily Streak.
+   * awards +25 XP toward the next level, and contributes to the 24-hour Daily Streak.
    */
   public groomPet(): DailyStreakRewardSummary | null {
     if (this.state.isSleeping) {
@@ -678,14 +891,15 @@ export class PetManager {
 
     // Play soothing brushing + purr + harp shimmer audio
     sound.playGroom();
-    this.gainExp(25);
+    const leveledUp = this.gainExp(25, 'Groom');
 
     const streakReward = this.recordDailyInteraction('Groomed Coat');
     if (!streakReward) {
       const gained = Math.max(0, newHappy - prevHappy);
       const happyMsg = gained > 0 ? `+${gained}% Happiness (${newHappy}%)` : `Happiness Max (100%)`;
+      const lvlPrefix = leveledUp ? `🎉 LEVEL UP TO LVL ${this.state.level}! ` : '';
       this.say(
-        `*Purrrr...* Soothing brush strokes! ✨ ${happyMsg}, +25 XP | Streak: ${this.state.dailyStreak}d 🔥`,
+        `${lvlPrefix}*Purrrr...* Soothing brush strokes! ✨ ${happyMsg}, +25 XP (${this.state.experience}/${this.getExpForNextLevel(this.state.level)} XP)`,
         4.5
       );
     }
@@ -704,6 +918,60 @@ export class PetManager {
     return streakReward;
   }
 
+  public onPlayWithPet(cb: (streakReward: DailyStreakRewardSummary | null) => void): () => void {
+    this.playListeners.push(cb);
+    return () => {
+      this.playListeners = this.playListeners.filter((l) => l !== cb);
+    };
+  }
+
+  /**
+   * Interactive 'Play with Pet' function that triggers playful bounce/flip animations,
+   * plays joyful chirp & catch audio, increases `happiness` and XP (+30 XP),
+   * and increments the pet's level when XP reaches threshold.
+   */
+  public playWithPet(activityLabel: string = 'Toy Ball'): DailyStreakRewardSummary | null {
+    if (this.state.isSleeping) {
+      this.state.isSleeping = false;
+    }
+
+    const prevHappy = Math.round(this.state.happiness);
+    this.state.happiness = Math.min(100, this.state.happiness + 20);
+    const newHappy = Math.round(this.state.happiness);
+
+    this.state.energy = Math.max(10, this.state.energy - 4);
+    this.state.affection += 10;
+    this.state.totalGamesPlayed += 1;
+    this.state.expression = 'starry';
+
+    sound.playCatch(2);
+    sound.playHappy();
+    const leveledUp = this.gainExp(30, `Play (${activityLabel})`);
+
+    const streakReward = this.recordDailyInteraction(`Played ${activityLabel}`);
+    if (!streakReward) {
+      const gained = Math.max(0, newHappy - prevHappy);
+      const happyMsg = gained > 0 ? `+${gained}% Happiness (${newHappy}%)` : `Happiness Max (100%)`;
+      const lvlPrefix = leveledUp ? `🎉 LEVEL UP TO LVL ${this.state.level}! ` : '';
+      this.say(
+        `${lvlPrefix}Yay, playing ${activityLabel} is so fun! 🎾 ${happyMsg}, +30 XP (${this.state.experience}/${this.getExpForNextLevel(this.state.level)} XP)`,
+        4.5
+      );
+    }
+
+    for (const listener of this.playListeners) {
+      listener(streakReward);
+    }
+
+    setTimeout(() => {
+      this.updateExpression();
+      this.notify();
+    }, 1500);
+
+    this.notify();
+    return streakReward;
+  }
+
   public pet() {
     if (this.state.isSleeping) {
       this.say(`Soft purrs in their sleep... 💤`);
@@ -715,17 +983,14 @@ export class PetManager {
     this.state.totalPetCount += 1;
 
     sound.playHappy();
-    this.gainExp(15);
+    const leveledUp = this.gainExp(15, 'Pet');
 
     const streakReward = this.recordDailyInteraction('Cuddle');
     if (!streakReward) {
-      const compliments = [
-        `Purrr! That feels so nice! ❤️`,
-        `I love you so much! 🥰 (+15 XP)`,
-        `*Happy squeaks and bounces!* ✨`,
-        `Best companion ever! 💖`,
-      ];
-      this.say(compliments[Math.floor(Math.random() * compliments.length)]);
+      const lvlPrefix = leveledUp ? `🎉 LEVEL UP TO LVL ${this.state.level}! ` : '';
+      this.say(
+        `${lvlPrefix}Purrr! That feels so nice! ❤️ +15 XP (${this.state.experience}/${this.getExpForNextLevel(this.state.level)} XP)`
+      );
     }
     this.notify();
   }
@@ -757,20 +1022,73 @@ export class PetManager {
     this.notify();
   }
 
-  public gainExp(amount: number) {
-    this.state.experience += amount;
-    const requiredForNext = this.getExpForNextLevel(this.state.level);
-    if (this.state.experience >= requiredForNext) {
+  public onLevelUp(cb: (newLevel: number, stage: EvolutionStage) => void): () => void {
+    this.levelUpListeners.push(cb);
+    return () => {
+      this.levelUpListeners = this.levelUpListeners.filter((l) => l !== cb);
+    };
+  }
+
+  public onXpGain(
+    cb: (amount: number, reason: string, leveledUp: boolean, newLevel: number) => void
+  ): () => void {
+    this.xpGainListeners.push(cb);
+    return () => {
+      this.xpGainListeners = this.xpGainListeners.filter((l) => l !== cb);
+    };
+  }
+
+  /**
+   * Increases the pet's XP counter and increments the pet's level whenever enough XP is earned.
+   */
+  public gainExp(amount: number, reason: string = 'Interaction'): boolean {
+    if (amount <= 0) return false;
+    this.state.experience = Math.round(this.state.experience + amount);
+    let leveledUp = false;
+
+    while (this.state.experience >= this.getExpForNextLevel(this.state.level)) {
+      const requiredForNext = this.getExpForNextLevel(this.state.level);
       this.state.experience -= requiredForNext;
       this.state.level += 1;
+      leveledUp = true;
+    }
+
+    if (leveledUp) {
       sound.playLevelUp();
       this.say(`🎉 LEVEL UP! ${this.state.name} reached Level ${this.state.level}! 🎉`, 6);
       this.recalculateStage();
+      for (const listener of this.levelUpListeners) {
+        listener(this.state.level, this.state.stage);
+      }
     }
+
+    for (const listener of this.xpGainListeners) {
+      listener(amount, reason, leveledUp, this.state.level);
+    }
+
+    this.notify();
+    return leveledUp;
   }
 
-  public getExpForNextLevel(level: number): number {
-    return Math.floor(100 * Math.pow(1.15, level - 1));
+  public getExpForNextLevel(_level: number = this.state.level): number {
+    return 100;
+  }
+
+  public getXpProgress(): {
+    currentXp: number;
+    maxXp: number;
+    percentage: number;
+    level: number;
+  } {
+    const maxXp = this.getExpForNextLevel(this.state.level);
+    const currentXp = Math.max(0, Math.min(maxXp, Math.round(this.state.experience)));
+    const percentage = Math.max(0, Math.min(100, Math.round((currentXp / maxXp) * 100)));
+    return {
+      currentXp,
+      maxXp,
+      percentage,
+      level: this.state.level,
+    };
   }
 
   private recalculateStage() {

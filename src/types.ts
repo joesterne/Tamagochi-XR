@@ -8,6 +8,19 @@ export type PetExpression = 'happy' | 'curious' | 'starry' | 'sleepy' | 'eating'
 
 export type PetMood = 'ecstatic' | 'happy' | 'hungry' | 'sad' | 'distressed' | 'sleeping';
 
+export type PetPersonality = 'Playful' | 'Sleepy' | 'Curious' | 'Affectionate' | 'Wise' | 'Hangry';
+
+export interface PersonalityInfo {
+  personality: PetPersonality;
+  label: string;
+  ageTitle: string;
+  ageDaysFormatted: string;
+  summary: string;
+  cssColor: string;
+  hexColor: number;
+  iconEmoji: string;
+}
+
 export type EvolutionStage = 'baby' | 'child' | 'teen' | 'adult' | 'mystic';
 
 export interface PetColorDef {

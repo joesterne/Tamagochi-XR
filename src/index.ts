@@ -89,6 +89,13 @@ class TamagotchiXRScene extends xb.Script {
       this.pet.triggerFlip();
     });
 
+    // Listen for Level-Up events to trigger 3D star burst & flip
+    petManager.onLevelUp(() => {
+      this.pet.spawnStars(14);
+      this.pet.spawnHearts(8);
+      this.pet.triggerFlip();
+    });
+
     // 6. Mini Games Manager
     this.miniGames = new MiniGameManager();
     this.miniGames.setPet(this.pet);
@@ -271,13 +278,9 @@ class TamagotchiXRScene extends xb.Script {
       return;
     }
 
-    // 7. Check if player clicked the Toy Ball
+    // 7. Check if player clicked the Toy Ball to Play with Pet (+30 XP)
     if (this.isDescendantOf(target, this.bouncyBall)) {
-      sound.playCatch(1);
-      this.pet.spawnStars(4);
-      petManager.recordDailyInteraction('Play Toy');
-      petManager.gainExp(10);
-      petManager.say('Yay, my favorite toy ball! 🎾 (+10 XP)', 3);
+      this.spatialUI.playWithPet('Toy Ball');
       event.stopPropagation();
       return;
     }

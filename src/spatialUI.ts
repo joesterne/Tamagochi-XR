@@ -22,6 +22,8 @@ export class TamagotchiSpatialUI {
   private overlayHungerBar!: xb.UIPanel;
   private overlayHappinessText!: xb.UIText;
   private overlayHappinessBar!: xb.UIPanel;
+  private overlayXpText!: xb.UIText;
+  private overlayXpBar!: xb.UIPanel;
   private overlaySleepBtn!: xb.UIButton;
 
   // On-Screen 2D DOM HUD Overlay Elements
@@ -29,6 +31,7 @@ export class TamagotchiSpatialUI {
   private domHudContainer?: HTMLElement;
   private domPetNameEl?: HTMLElement;
   private domPetLevelEl?: HTMLElement;
+  private domPetPersonalityEl?: HTMLElement;
   private domPetMoodEl?: HTMLElement;
   private domHungerFillEl?: HTMLElement;
   private domHungerValueEl?: HTMLElement;
@@ -36,7 +39,11 @@ export class TamagotchiSpatialUI {
   private domHappinessFillEl?: HTMLElement;
   private domHappinessValueEl?: HTMLElement;
   private domHappinessStateEl?: HTMLElement;
+  private domXpFillEl?: HTMLElement;
+  private domXpValueEl?: HTMLElement;
+  private domXpStateEl?: HTMLElement;
   private domSleepBtnEl?: HTMLButtonElement;
+  private xpFeedbackTimer?: number;
 
   // Active Tab: 'care' | 'streak' | 'stylist' | 'games' | 'leaderboard'
   private currentTab: 'care' | 'streak' | 'stylist' | 'games' | 'leaderboard' = 'care';
@@ -73,6 +80,8 @@ export class TamagotchiSpatialUI {
   // Care Panel Elements
   private moodStatusBadgePanel: xb.UIPanel;
   private moodStatusText: xb.UIText;
+  private xpText: xb.UIText;
+  private xpBar: xb.UIPanel;
   private hungerText: xb.UIText;
   private hungerBar: xb.UIPanel;
   private energyText: xb.UIText;
@@ -339,6 +348,14 @@ export class TamagotchiSpatialUI {
       children: [this.moodStatusText],
     });
 
+    this.xpText = new xb.UIText({
+      text: '80 / 100 XP',
+      style: { fontSize: 13, fontWeight: 'bold', color: '#ffd166' },
+    });
+    this.xpBar = new xb.UIPanel({
+      style: { width: '80%', height: '100%', backgroundColor: '#ffd166', borderRadius: 6 },
+    });
+
     this.hungerText = new xb.UIText({ text: '80%', style: { fontSize: 13, fontWeight: 'bold' } });
     this.hungerBar = new xb.UIPanel({
       style: { width: '80%', height: '100%', backgroundColor: '#ff5c8a', borderRadius: 6 },
@@ -362,6 +379,7 @@ export class TamagotchiSpatialUI {
     const needsContainer = new xb.UIPanel({
       style: { width: '100%', flexDirection: 'column', gap: 8 },
       children: [
+        this.createNeedRow('XP (Level)', this.xpBar, this.xpText),
         this.createNeedRow('Hunger', this.hungerBar, this.hungerText),
         this.createNeedRow('Energy', this.energyBar, this.energyText),
         this.createNeedRow('Happiness', this.happinessBar, this.happinessText),
@@ -382,7 +400,7 @@ export class TamagotchiSpatialUI {
       style: { width: '100%', flexDirection: 'row', gap: 8 },
       children: [
         new xb.UIButton({
-          label: 'Feed Pet',
+          label: 'Feed (+25 XP)',
           icon: 'restaurant',
           style: { flexGrow: 1, height: 42 },
           onClick: () => {
@@ -390,11 +408,19 @@ export class TamagotchiSpatialUI {
           },
         }),
         new xb.UIButton({
-          label: 'Groom Pet',
+          label: 'Groom (+25 XP)',
           icon: 'favorite',
           style: { flexGrow: 1, height: 42 },
           onClick: () => {
             this.groomPet();
+          },
+        }),
+        new xb.UIButton({
+          label: 'Play (+30 XP)',
+          icon: 'sports_esports',
+          style: { flexGrow: 1, height: 42 },
+          onClick: () => {
+            this.playWithPet('Toy Ball');
           },
         }),
       ],
@@ -438,6 +464,28 @@ export class TamagotchiSpatialUI {
       ],
     });
 
+    const personalityPresetRow = new xb.UIPanel({
+      style: { width: '100%', flexDirection: 'row', gap: 6 },
+      children: [
+        this.createMiniBtn('Trait: Playful', () => {
+          petManager.applyPersonalityPreset('Playful');
+          this.petRef.spawnStars(6);
+          this.petRef.triggerFlip();
+        }),
+        this.createMiniBtn('Trait: Sleepy', () => {
+          petManager.applyPersonalityPreset('Sleepy');
+        }),
+        this.createMiniBtn('Trait: Curious', () => {
+          petManager.applyPersonalityPreset('Curious');
+          this.petRef.spawnBubbles(5);
+        }),
+        this.createMiniBtn('Trait: Wise', () => {
+          petManager.applyPersonalityPreset('Wise');
+          this.petRef.spawnStars(8);
+        }),
+      ],
+    });
+
     const moodPresetRow = new xb.UIPanel({
       style: { width: '100%', flexDirection: 'row', gap: 6 },
       children: [
@@ -465,6 +513,7 @@ export class TamagotchiSpatialUI {
         careRow1,
         snackSelectRow,
         careRow2,
+        personalityPresetRow,
         moodPresetRow,
       ],
     });
@@ -734,19 +783,47 @@ export class TamagotchiSpatialUI {
     this.overlay = this.buildOnScreenXROverlay();
     this.buildOnScreenDomHudOverlay();
 
-    // Subscribe to state updates
+    // Subscribe to state updates & XP/Level-Up events
     petManager.subscribe((state) => this.onStateChanged(state));
+    petManager.onXpGain((amount, _reason, leveledUp, newLevel) => {
+      this.triggerHudXpFeedback(amount, leveledUp, newLevel);
+    });
     this.refreshStreakPanelUI();
     this.refreshARControlsUI();
   }
 
   /**
+   * Triggers visual pulse feedback on the HUD XP counter and Level badge when XP is earned or level increments.
+   */
+  private triggerHudXpFeedback(amount: number, leveledUp: boolean, newLevel: number) {
+    if (this.domXpStateEl) {
+      this.domXpStateEl.textContent = leveledUp ? `LEVEL UP! LVL ${newLevel}!` : `+${amount} XP!`;
+      this.domXpStateEl.classList.add('xp-gain-highlight');
+    }
+    if (leveledUp && this.domPetLevelEl) {
+      this.domPetLevelEl.classList.remove('level-up-pulse');
+      void this.domPetLevelEl.offsetWidth;
+      this.domPetLevelEl.classList.add('level-up-pulse');
+    }
+    if (this.xpFeedbackTimer) {
+      window.clearTimeout(this.xpFeedbackTimer);
+    }
+    this.xpFeedbackTimer = window.setTimeout(() => {
+      if (this.domXpStateEl) {
+        this.domXpStateEl.classList.remove('xp-gain-highlight');
+        const prog = petManager.getXpProgress();
+        this.domXpStateEl.textContent = `Next: LVL ${prog.level + 1}`;
+      }
+    }, 2200);
+  }
+
+  /**
    * Creates an on-screen XR Blocks `xb.UIOverlay` anchored to the bottom of the viewport
-   * that displays the pet's live 'hunger' and 'happiness' stats as real-time progress bars.
+   * that displays the pet's live 'hunger', 'happiness', and 'XP / Level' stats as real-time progress bars.
    */
   private buildOnScreenXROverlay(): xb.UIOverlay {
     this.overlayPetTitleText = new xb.UIText({
-      text: 'MOCHI (BABY) - LVL 3',
+      text: 'MOCHI (BABY) - LVL 3 (80/100 XP)',
       pointerEvents: 'none',
       style: { fontSize: 15, fontWeight: 'bold', color: '#ffffff' },
     });
@@ -771,7 +848,7 @@ export class TamagotchiSpatialUI {
     this.overlayHungerText = new xb.UIText({
       text: '80% (Well-Fed)',
       pointerEvents: 'none',
-      style: { fontSize: 13, fontWeight: 'bold', color: '#ff85a2' },
+      style: { fontSize: 12, fontWeight: 'bold', color: '#ff85a2' },
     });
 
     this.overlayHungerBar = new xb.UIPanel({
@@ -807,7 +884,7 @@ export class TamagotchiSpatialUI {
             new xb.UIText({
               text: 'HUNGER',
               pointerEvents: 'none',
-              style: { fontSize: 13, fontWeight: 'bold', color: '#ffffff' },
+              style: { fontSize: 12, fontWeight: 'bold', color: '#ffffff' },
             }),
             this.overlayHungerText,
           ],
@@ -816,9 +893,9 @@ export class TamagotchiSpatialUI {
           pointerEvents: 'none',
           style: {
             width: '100%',
-            height: 14,
+            height: 12,
             backgroundColor: 'rgba(255, 255, 255, 0.14)',
-            borderRadius: 7,
+            borderRadius: 6,
             overflow: 'hidden',
           },
           children: [this.overlayHungerBar],
@@ -829,7 +906,7 @@ export class TamagotchiSpatialUI {
     this.overlayHappinessText = new xb.UIText({
       text: '85% (Joyful)',
       pointerEvents: 'none',
-      style: { fontSize: 13, fontWeight: 'bold', color: '#06d6a0' },
+      style: { fontSize: 12, fontWeight: 'bold', color: '#06d6a0' },
     });
 
     this.overlayHappinessBar = new xb.UIPanel({
@@ -865,7 +942,7 @@ export class TamagotchiSpatialUI {
             new xb.UIText({
               text: 'HAPPINESS',
               pointerEvents: 'none',
-              style: { fontSize: 13, fontWeight: 'bold', color: '#ffffff' },
+              style: { fontSize: 12, fontWeight: 'bold', color: '#ffffff' },
             }),
             this.overlayHappinessText,
           ],
@@ -874,12 +951,70 @@ export class TamagotchiSpatialUI {
           pointerEvents: 'none',
           style: {
             width: '100%',
-            height: 14,
+            height: 12,
             backgroundColor: 'rgba(255, 255, 255, 0.14)',
-            borderRadius: 7,
+            borderRadius: 6,
             overflow: 'hidden',
           },
           children: [this.overlayHappinessBar],
+        }),
+      ],
+    });
+
+    this.overlayXpText = new xb.UIText({
+      text: '80/100 XP (LVL 3)',
+      pointerEvents: 'none',
+      style: { fontSize: 12, fontWeight: 'bold', color: '#ffd166' },
+    });
+
+    this.overlayXpBar = new xb.UIPanel({
+      pointerEvents: 'none',
+      style: {
+        width: '80%',
+        height: '100%',
+        backgroundColor: '#ffd166',
+        borderRadius: 7,
+      },
+    });
+
+    const xpColumn = new xb.UIPanel({
+      pointerEvents: 'none',
+      style: {
+        flexGrow: 1,
+        flexDirection: 'column',
+        gap: 5,
+        padding: 8,
+        backgroundColor: 'rgba(255, 209, 102, 0.08)',
+        borderRadius: 12,
+      },
+      children: [
+        new xb.UIPanel({
+          pointerEvents: 'none',
+          style: {
+            width: '100%',
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          },
+          children: [
+            new xb.UIText({
+              text: 'XP PROGRESS',
+              pointerEvents: 'none',
+              style: { fontSize: 12, fontWeight: 'bold', color: '#ffd166' },
+            }),
+            this.overlayXpText,
+          ],
+        }),
+        new xb.UIPanel({
+          pointerEvents: 'none',
+          style: {
+            width: '100%',
+            height: 12,
+            backgroundColor: 'rgba(255, 255, 255, 0.14)',
+            borderRadius: 6,
+            overflow: 'hidden',
+          },
+          children: [this.overlayXpBar],
         }),
       ],
     });
@@ -889,15 +1024,15 @@ export class TamagotchiSpatialUI {
       style: {
         width: '100%',
         flexDirection: 'row',
-        gap: 12,
+        gap: 10,
       },
-      children: [hungerColumn, happinessColumn],
+      children: [hungerColumn, happinessColumn, xpColumn],
     });
 
     this.overlaySleepBtn = new xb.UIButton({
       label: 'Put to Sleep',
       icon: 'bedtime',
-      style: { flexGrow: 1, height: 36, fontSize: 13 },
+      style: { flexGrow: 1, height: 36, fontSize: 12 },
       onClick: () => this.toggleSleepPet(),
     });
 
@@ -905,20 +1040,26 @@ export class TamagotchiSpatialUI {
       style: {
         width: '100%',
         flexDirection: 'row',
-        gap: 10,
+        gap: 8,
       },
       children: [
         new xb.UIButton({
-          label: 'Feed Pet (+Hunger)',
+          label: 'Feed (+25 XP)',
           icon: 'restaurant',
-          style: { flexGrow: 1, height: 36, fontSize: 13 },
+          style: { flexGrow: 1, height: 36, fontSize: 12 },
           onClick: () => this.feedPet(),
         }),
         new xb.UIButton({
-          label: 'Groom Pet (+Happiness)',
+          label: 'Groom (+25 XP)',
           icon: 'favorite',
-          style: { flexGrow: 1, height: 36, fontSize: 13 },
+          style: { flexGrow: 1, height: 36, fontSize: 12 },
           onClick: () => this.groomPet(),
+        }),
+        new xb.UIButton({
+          label: 'Play (+30 XP)',
+          icon: 'sports_esports',
+          style: { flexGrow: 1, height: 36, fontSize: 12 },
+          onClick: () => this.playWithPet('Toy Ball'),
         }),
         this.overlaySleepBtn,
       ],
@@ -926,7 +1067,7 @@ export class TamagotchiSpatialUI {
 
     const overlay = new xb.UIOverlay({
       style: {
-        width: 660,
+        width: 720,
         position: 'absolute',
         left: '50%',
         bottom: 24,
@@ -952,7 +1093,7 @@ export class TamagotchiSpatialUI {
 
   /**
    * Builds a 2D HTML DOM on-screen UI overlay anchored at the top of the screen
-   * so 'hunger' and 'happiness' progress bars and the 'Put to Sleep' action are always visible on-screen in real time.
+   * so 'hunger', 'happiness', and 'XP / Level' progress bars and care actions are always visible on-screen in real time.
    */
   private buildOnScreenDomHudOverlay() {
     if (typeof document === 'undefined') return;
@@ -974,13 +1115,14 @@ export class TamagotchiSpatialUI {
     container.id = 'pet-stats-hud-overlay';
     container.className = 'pet-hud-overlay';
     container.setAttribute('role', 'region');
-    container.setAttribute('aria-label', 'Virtual Pet Real-Time Hunger and Happiness Stats Overlay');
+    container.setAttribute('aria-label', 'Virtual Pet Real-Time Hunger, Happiness, and XP Level HUD Overlay');
 
     container.innerHTML = `
       <div class="pet-hud-header">
         <div class="pet-hud-title-group">
           <span class="pet-hud-name" id="hud-pet-name">Mochi (BABY)</span>
           <span class="pet-hud-level" id="hud-pet-level">LVL 3</span>
+          <span class="pet-hud-personality" id="hud-pet-personality" title="Pet Personality & Age Stage">🔎 PERSONALITY: CURIOUS (0.2d)</span>
         </div>
         <span class="pet-hud-mood" id="hud-pet-mood">MOOD: ECSTATIC</span>
       </div>
@@ -1009,11 +1151,31 @@ export class TamagotchiSpatialUI {
             <div class="pet-hud-bar-fill" id="hud-happiness-fill"></div>
           </div>
         </div>
+        <div class="pet-hud-stat-card pet-hud-xp-card">
+          <div class="pet-hud-stat-top">
+            <span class="pet-hud-stat-label">⭐ Experience</span>
+            <div class="pet-hud-stat-value-group">
+              <span class="pet-hud-stat-state" id="hud-xp-state">Next: LVL 4</span>
+              <span class="pet-hud-stat-value" id="hud-xp-value">80 / 100 XP</span>
+            </div>
+          </div>
+          <div class="pet-hud-bar-track" role="progressbar" aria-label="Pet Experience XP" aria-valuemin="0" aria-valuemax="100" aria-valuenow="80">
+            <div class="pet-hud-bar-fill pet-hud-xp-fill" id="hud-xp-fill"></div>
+          </div>
+        </div>
       </div>
       <div class="pet-hud-actions">
-        <button type="button" class="pet-hud-action-btn" id="hud-btn-feed">🍎 Feed Pet (+Hunger)</button>
-        <button type="button" class="pet-hud-action-btn" id="hud-btn-groom">🪮 Groom Pet (+Happiness)</button>
+        <button type="button" class="pet-hud-action-btn" id="hud-btn-feed">🍎 Feed (+25 XP)</button>
+        <button type="button" class="pet-hud-action-btn" id="hud-btn-groom">🪮 Groom (+25 XP)</button>
+        <button type="button" class="pet-hud-action-btn" id="hud-btn-play">🎾 Play (+30 XP)</button>
         <button type="button" class="pet-hud-action-btn" id="hud-btn-sleep">🌙 Put to Sleep</button>
+      </div>
+      <div class="pet-hud-personality-row" aria-label="Personality Presets by Stats and Age">
+        <span class="pet-hud-personality-label">🎭 Personality & Age:</span>
+        <button type="button" class="pet-hud-trait-btn" id="hud-trait-playful">🤸 Playful</button>
+        <button type="button" class="pet-hud-trait-btn" id="hud-trait-sleepy">🥱 Sleepy</button>
+        <button type="button" class="pet-hud-trait-btn" id="hud-trait-curious">🔎 Curious (Young)</button>
+        <button type="button" class="pet-hud-trait-btn" id="hud-trait-wise">🦉 Wise (Elder)</button>
       </div>
     `;
 
@@ -1022,6 +1184,7 @@ export class TamagotchiSpatialUI {
     this.domHudContainer = container;
     this.domPetNameEl = container.querySelector('#hud-pet-name') as HTMLElement;
     this.domPetLevelEl = container.querySelector('#hud-pet-level') as HTMLElement;
+    this.domPetPersonalityEl = container.querySelector('#hud-pet-personality') as HTMLElement;
     this.domPetMoodEl = container.querySelector('#hud-pet-mood') as HTMLElement;
     this.domHungerFillEl = container.querySelector('#hud-hunger-fill') as HTMLElement;
     this.domHungerValueEl = container.querySelector('#hud-hunger-value') as HTMLElement;
@@ -1029,6 +1192,9 @@ export class TamagotchiSpatialUI {
     this.domHappinessFillEl = container.querySelector('#hud-happiness-fill') as HTMLElement;
     this.domHappinessValueEl = container.querySelector('#hud-happiness-value') as HTMLElement;
     this.domHappinessStateEl = container.querySelector('#hud-happiness-state') as HTMLElement;
+    this.domXpFillEl = container.querySelector('#hud-xp-fill') as HTMLElement;
+    this.domXpValueEl = container.querySelector('#hud-xp-value') as HTMLElement;
+    this.domXpStateEl = container.querySelector('#hud-xp-state') as HTMLElement;
     this.domSleepBtnEl = container.querySelector('#hud-btn-sleep') as HTMLButtonElement;
 
     const feedBtn = container.querySelector('#hud-btn-feed');
@@ -1043,9 +1209,36 @@ export class TamagotchiSpatialUI {
       this.groomPet();
     });
 
+    const playBtn = container.querySelector('#hud-btn-play');
+    playBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.playWithPet('Toy Ball');
+    });
+
     this.domSleepBtnEl?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.toggleSleepPet();
+    });
+
+    container.querySelector('#hud-trait-playful')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      petManager.applyPersonalityPreset('Playful');
+      this.petRef.spawnStars(6);
+      this.petRef.triggerFlip();
+    });
+    container.querySelector('#hud-trait-sleepy')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      petManager.applyPersonalityPreset('Sleepy');
+    });
+    container.querySelector('#hud-trait-curious')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      petManager.applyPersonalityPreset('Curious');
+      this.petRef.spawnBubbles(5);
+    });
+    container.querySelector('#hud-trait-wise')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      petManager.applyPersonalityPreset('Wise');
+      this.petRef.spawnStars(8);
     });
   }
 
@@ -1072,7 +1265,7 @@ export class TamagotchiSpatialUI {
 
   /**
    * Interactive 'Feed Pet' handler invoked from the Spatial UI buttons.
-   * Triggers the 3D feeding animation, plays multi-bite eating audio, increases `hunger`,
+   * Triggers the 3D feeding animation, plays multi-bite eating audio, increases `hunger` and XP (+25 XP),
    * and contributes to the 24-hour Daily Streak.
    */
   public feedPet(snackType?: 'apple' | 'cake' | 'sushi' | 'cookie') {
@@ -1087,11 +1280,28 @@ export class TamagotchiSpatialUI {
 
   /**
    * Interactive 'Groom Pet' handler invoked from the Spatial UI button or 3D Grooming Brush.
-   * Triggers the 3D brushing animation, plays soothing brush & purr audio, increases `happiness`,
+   * Triggers the 3D brushing animation, plays soothing brush & purr audio, increases `happiness` and XP (+25 XP),
    * and contributes to the 24-hour Daily Streak.
    */
   public groomPet() {
     const streakReward = petManager.groomPet();
+    if (streakReward) {
+      this.streakShrineRef?.triggerCelebrationBurst();
+    } else {
+      this.streakShrineRef?.syncWithStreakState();
+    }
+    this.refreshStreakPanelUI();
+  }
+
+  /**
+   * Interactive 'Play with Pet' handler invoked from the HUD actions, Care panel, or 3D Toy Ball.
+   * Triggers playful flip & star burst, increases `happiness` and XP (+30 XP), and levels up the pet when XP fills.
+   */
+  public playWithPet(activityLabel: string = 'Toy Ball') {
+    const streakReward = petManager.playWithPet(activityLabel);
+    this.petRef.spawnStars(8);
+    this.petRef.spawnHearts(5);
+    this.petRef.triggerFlip();
     if (streakReward) {
       this.streakShrineRef?.triggerCelebrationBurst();
     } else {
@@ -1251,23 +1461,30 @@ export class TamagotchiSpatialUI {
 
   private onStateChanged(state: PetState) {
     const moodInfo = petManager.getMoodInfo();
+    const personalityInfo = petManager.getPersonalityInfo();
+    const xpProg = petManager.getXpProgress();
     this.titleText.text = `${state.name} (${state.stage.toUpperCase()})`;
     const streakStatus = petManager.isStreakRewardAvailable() ? 'READY' : `${state.dailyStreak}d`;
-    this.subtitleText.text = `Age: ${(state.ageHours / 24).toFixed(1)}d | Mood: ${moodInfo.label} | Streak: ${streakStatus}`;
-    this.levelBadgeText.text = `LVL ${state.level}`;
+    this.subtitleText.text = `Age: ${personalityInfo.ageDaysFormatted} (${personalityInfo.ageTitle}) | Trait: ${personalityInfo.label} | Streak: ${streakStatus}`;
+    this.levelBadgeText.text = `LVL ${state.level} (${xpProg.currentXp}/${xpProg.maxXp} XP)`;
 
-    // Update live Mood Status Banner in Care Tab
+    // Update live Personality & Mood Status Banner in Care Tab
     if (this.moodStatusText && this.moodStatusBadgePanel) {
-      this.moodStatusText.text = `3D MOOD: ${moodInfo.label} - ${moodInfo.summary}`;
-      this.moodStatusText.style.color = moodInfo.cssColor;
-      this.moodStatusBadgePanel.style.borderColor = moodInfo.cssColor;
+      this.moodStatusText.text = `PERSONALITY: ${personalityInfo.label} (${personalityInfo.ageTitle}) - ${personalityInfo.summary}`;
+      this.moodStatusText.style.color = personalityInfo.cssColor;
+      this.moodStatusBadgePanel.style.borderColor = personalityInfo.cssColor;
     }
 
-    // Needs values & progress bars
+    // Needs & XP values & progress bars
     const h = Math.round(state.hunger);
     const e = Math.round(state.energy);
     const hap = Math.round(state.happiness);
     const hyg = Math.round(state.hygiene);
+
+    if (this.xpText && this.xpBar) {
+      this.xpText.text = `${xpProg.currentXp} / ${xpProg.maxXp} XP`;
+      this.xpBar.style.width = `${Math.max(4, xpProg.percentage)}%`;
+    }
 
     // Dynamic color & status calculation for Hunger and Happiness
     const hungerColor = state.isSleeping
@@ -1314,11 +1531,11 @@ export class TamagotchiSpatialUI {
 
     // Update On-Screen XR Viewport UIOverlay progress bars & night-time UI dimming
     if (this.overlayPetTitleText) {
-      this.overlayPetTitleText.text = `${state.name.toUpperCase()} (${state.stage.toUpperCase()}) - LVL ${state.level}`;
+      this.overlayPetTitleText.text = `${state.name.toUpperCase()} (${state.stage.toUpperCase()}) - LVL ${state.level} (${xpProg.currentXp}/${xpProg.maxXp} XP)`;
     }
     if (this.overlayMoodBadgeText) {
-      this.overlayMoodBadgeText.text = `MOOD: ${moodInfo.label}`;
-      this.overlayMoodBadgeText.style.color = moodInfo.cssColor;
+      this.overlayMoodBadgeText.text = `TRAIT: ${personalityInfo.label} (${personalityInfo.ageDaysFormatted}) | MOOD: ${moodInfo.label}`;
+      this.overlayMoodBadgeText.style.color = personalityInfo.cssColor;
     }
     if (this.overlayHungerText && this.overlayHungerBar) {
       this.overlayHungerText.text = `${h}% (${hungerTag})`;
@@ -1331,6 +1548,10 @@ export class TamagotchiSpatialUI {
       this.overlayHappinessText.style.color = happinessColor;
       this.overlayHappinessBar.style.width = `${Math.max(4, state.happiness)}%`;
       this.overlayHappinessBar.style.backgroundColor = happinessColor;
+    }
+    if (this.overlayXpText && this.overlayXpBar) {
+      this.overlayXpText.text = `${xpProg.currentXp}/${xpProg.maxXp} XP (LVL ${state.level})`;
+      this.overlayXpBar.style.width = `${Math.max(4, xpProg.percentage)}%`;
     }
     if (this.overlaySleepBtn) {
       this.overlaySleepBtn.label = state.isSleeping ? 'Wake Up Pet' : 'Put to Sleep';
@@ -1367,6 +1588,11 @@ export class TamagotchiSpatialUI {
     if (this.domPetLevelEl) {
       this.domPetLevelEl.textContent = `LVL ${state.level}`;
     }
+    if (this.domPetPersonalityEl) {
+      this.domPetPersonalityEl.textContent = `${personalityInfo.iconEmoji} PERSONALITY: ${personalityInfo.label} (${personalityInfo.ageDaysFormatted})`;
+      this.domPetPersonalityEl.style.color = personalityInfo.cssColor;
+      this.domPetPersonalityEl.style.borderColor = personalityInfo.cssColor;
+    }
     if (this.domPetMoodEl) {
       this.domPetMoodEl.textContent = `MOOD: ${moodInfo.label}`;
       this.domPetMoodEl.style.color = moodInfo.cssColor;
@@ -1391,6 +1617,15 @@ export class TamagotchiSpatialUI {
       this.domHappinessValueEl.style.color = happinessColor;
       this.domHappinessStateEl.textContent = happinessTag;
       this.domHappinessFillEl.parentElement?.setAttribute('aria-valuenow', String(hap));
+    }
+    if (this.domXpFillEl && this.domXpValueEl && this.domXpStateEl) {
+      this.domXpFillEl.style.width = `${xpProg.percentage}%`;
+      this.domXpValueEl.textContent = `${xpProg.currentXp} / ${xpProg.maxXp} XP`;
+      this.domXpFillEl.parentElement?.setAttribute('aria-valuenow', String(xpProg.currentXp));
+      this.domXpFillEl.parentElement?.setAttribute('aria-valuemax', String(xpProg.maxXp));
+      if (!this.domXpStateEl.classList.contains('xp-gain-highlight')) {
+        this.domXpStateEl.textContent = `Next: LVL ${state.level + 1}`;
+      }
     }
 
     this.sleepBtn.label = state.isSleeping ? 'Wake Up Pet' : 'Put to Sleep';
