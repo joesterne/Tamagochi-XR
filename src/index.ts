@@ -22,6 +22,7 @@ class TamagotchiXRScene extends xb.Script {
   private snackPlatter!: SnackPlatter;
   private groomingBrush!: GroomingBrush;
   private dirLight!: THREE.DirectionalLight;
+  private rimLight!: THREE.DirectionalLight;
   private hemiLight!: THREE.HemisphereLight;
 
   // Smooth damped target positions for surface anchoring
@@ -31,26 +32,39 @@ class TamagotchiXRScene extends xb.Script {
   private floorY = 0.8;
 
   init() {
-    // 1. Studio PBR Tone Mapping & RoomEnvironment Reflections
+    // 1. Studio PBR Tone Mapping, Soft Shadows & RoomEnvironment Reflections
     const renderer = xb.core.renderer;
     if (renderer instanceof THREE.WebGLRenderer) {
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.1;
+      renderer.toneMappingExposure = 1.12;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       const pmremGenerator = new THREE.PMREMGenerator(renderer);
       xb.core.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
       pmremGenerator.dispose();
     }
 
-    // 2. Warm/Cool Studio Lighting Rig
-    this.hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x3b3346, 2.2);
+    // 2. Warm/Cool Studio Three-Point Lighting Rig for Smooth Mochi/Vinyl Shading
+    this.hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x3b3346, 2.15);
     this.add(this.hemiLight);
 
-    this.dirLight = new THREE.DirectionalLight(0xfff1e0, 2.2);
+    this.dirLight = new THREE.DirectionalLight(0xfff4e6, 2.25);
     this.dirLight.position.set(1.5, 4, 1.2);
     this.dirLight.castShadow = true;
+    this.dirLight.shadow.mapSize.set(2048, 2048);
+    this.dirLight.shadow.camera.near = 0.5;
+    this.dirLight.shadow.camera.far = 8;
+    this.dirLight.shadow.camera.left = -1.2;
+    this.dirLight.shadow.camera.right = 1.2;
+    this.dirLight.shadow.camera.top = 1.2;
+    this.dirLight.shadow.camera.bottom = -1.2;
     this.dirLight.shadow.bias = -0.0005;
-    this.dirLight.shadow.normalBias = 0.02;
+    this.dirLight.shadow.normalBias = 0.025;
     this.add(this.dirLight);
+
+    this.rimLight = new THREE.DirectionalLight(0xa5b4fc, 1.15);
+    this.rimLight.position.set(-1.6, 2.2, -1.8);
+    this.add(this.rimLight);
 
     // 3. AR Pass-Through & WebXR Hit-Test Surface Placement System
     this.arPlacement = new ARPlacementSystem();
@@ -177,10 +191,12 @@ class TamagotchiXRScene extends xb.Script {
 
     // Sleep mode lighting effect with exponential damping
     const isSleeping = petManager.getState().isSleeping;
-    const targetHemi = isSleeping ? 0.7 : 2.2;
-    const targetDir = isSleeping ? 0.4 : 2.2;
+    const targetHemi = isSleeping ? 0.7 : 2.15;
+    const targetDir = isSleeping ? 0.4 : 2.25;
+    const targetRim = isSleeping ? 0.35 : 1.15;
     this.hemiLight.intensity = THREE.MathUtils.damp(this.hemiLight.intensity, targetHemi, 3.0, deltaTime);
     this.dirLight.intensity = THREE.MathUtils.damp(this.dirLight.intensity, targetDir, 3.0, deltaTime);
+    this.rimLight.intensity = THREE.MathUtils.damp(this.rimLight.intensity, targetRim, 3.0, deltaTime);
   }
 
   onSelectStart(event: xb.SelectEvent) {
